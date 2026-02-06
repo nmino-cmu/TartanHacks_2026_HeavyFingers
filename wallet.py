@@ -1,0 +1,33 @@
+# Define the network client
+from xrpl.clients import JsonRpcClient
+from xrpl.wallet import generate_faucet_wallet
+from xrpl.core import addresscodec
+from xrpl.models.requests.account_info import AccountInfo
+import json
+
+JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
+client = JsonRpcClient(JSON_RPC_URL)
+
+def createWallet():
+    # Create a wallet using the Testnet faucet:
+    # https://xrpl.org/xrp-testnet-faucet.html
+    print("\nCreating a new wallet and funding it with Testnet XRP...")
+    test_wallet = generate_faucet_wallet(client, debug=True)
+    test_account = test_wallet.classic_address
+    print(f"Wallet: {test_account}")
+    print(f"Account Testnet Explorer URL: ")
+    print(f" https://testnet.xrpl.org/accounts/{test_account}")
+
+
+    # Look up info about your account
+    print("\nGetting account info...")
+    acct_info = AccountInfo(
+        account=test_account,
+        ledger_index="validated",
+        strict=True,
+    )
+
+    response = client.request(acct_info)
+    result = response.result
+    print("Response Status: ", response.status)
+    print(json.dumps(response.result, indent=4, sort_keys=True))
