@@ -2,6 +2,10 @@
 TartanHacks 2026 Heavy Fingers project
 Requirements:
 pip install dedalus-labs
+<<<<<<< HEAD
+=======
+pip install xrpl-py
+>>>>>>> main
 pip install python-dotenv
 
 
