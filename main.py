@@ -8,9 +8,9 @@ load_dotenv()
 async def main():
     api_key = os.getenv("DEDALUS_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing DEDALUS_API_KEY env var")
+        raise RuntimeError("Missing DEDALUS_API_KEY")
 
-    client = AsyncDedalus(api_key=api_key)
+    client = AsyncDedalus(api_key = api_key)
     runner = DedalusRunner(client)
 
     response = await runner.run(
