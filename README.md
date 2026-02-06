@@ -2,3 +2,4 @@
 TartanHacks 2026 Heavy Fingers project
 Requirements:
 pip install dedalus-labs
+pip install xrpl-py
