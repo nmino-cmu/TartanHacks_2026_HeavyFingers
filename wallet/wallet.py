@@ -68,6 +68,16 @@ def sendCheck(seed, amount, destination):
         reply=f"Submit failed: {e}"
     return reply
 
+def get_checks(account):
+    client=JsonRpcClient(testnet_url)
+    acct_checks=AccountObjects(
+        account=account,
+        ledger_index="validated",
+        type="check"
+    )
+    response=client.request(acct_checks)
+    return response.result
+
 createWallet(JSON_WALLET)
 seed = getSeed(JSON_WALLET)
 print(sendCheck(seed, "10", EVERY_DONATE_ADDRESS)) 
