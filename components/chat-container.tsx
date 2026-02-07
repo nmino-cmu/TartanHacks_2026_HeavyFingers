@@ -11,11 +11,11 @@ const transport = new DefaultChatTransport({ api: "/api/chat" })
 
 export function ChatContainer() {
   const [input, setInput] = useState("")
+  const [model, setModel] = useState("openai/gpt-4o-mini")
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status } = useChat({
-    transport,
-  })
+  const { messages, sendMessage, status } = useChat({transport, })
 
   const isLoading = status === "streaming" || status === "submitted"
 
@@ -25,12 +25,18 @@ export function ChatContainer() {
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading) return
-    sendMessage({ text: input })
+    sendMessage(
+      { text: input },
+      { body: {model} }
+    )
     setInput("")
   }
 
   const handleSuggestionClick = (prompt: string) => {
-    sendMessage({ text: prompt })
+    sendMessage(
+      { text: prompt },
+      { body: {model} }
+    )
   }
 
   return (
@@ -60,6 +66,8 @@ export function ChatContainer() {
         onInputChange={setInput}
         onSubmit={handleSubmit}
         isLoading={isLoading}
+        model={model}
+        onModelChange={setModel}
       />
     </div>
   )

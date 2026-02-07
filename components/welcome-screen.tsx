@@ -127,7 +127,7 @@ export function WelcomeScreen({ onSuggestionClick }: WelcomeScreenProps) {
         </div>
         <div className="flex flex-col gap-2">
           <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground">
-            Welcome to Daedalus
+            Welcome to Verdant
           </h1>
           <p className="max-w-md text-pretty text-muted-foreground leading-relaxed">
             Your eco-conscious AI assistant. Ask questions, generate ideas, write code, or explore any topic.

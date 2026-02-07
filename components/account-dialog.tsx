@@ -44,8 +44,8 @@ export function AccountDialog({ open, onOpenChange, onLogin }: AccountDialogProp
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {mode === "signin"
-              ? "Sign in to your Daedalus account to continue."
-              : "Sign up for Daedalus to save your conversations."}
+              ? "Sign in to your Verdant account to continue."
+              : "Sign up for Verdant to save your conversations."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-2">

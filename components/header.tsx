@@ -130,7 +130,7 @@ export function Header() {
               <LeafIcon className="h-4 w-4 text-primary-foreground" />
             </div>
             <span className="text-lg font-semibold tracking-tight text-foreground">
-              Daedalus
+              Verdant
             </span>
             <span className="hidden rounded-full border border-seafoam/40 bg-mint/60 px-2 py-0.5 text-xs font-medium text-pine sm:inline-block">
               AI
@@ -154,7 +154,7 @@ export function Header() {
                     <div className="flex flex-col gap-1">
                       <p className="text-sm font-medium leading-none">{userName}</p>
                       <p className="text-xs leading-none text-muted-foreground">
-                        Daedalus User
+                        Verdant User
                       </p>
                     </div>
                   </DropdownMenuLabel>
