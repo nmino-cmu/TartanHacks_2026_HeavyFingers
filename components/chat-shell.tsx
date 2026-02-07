@@ -116,7 +116,7 @@ export function ChatShell() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <ChatContainer
           key={active.id}
-          conversationId={active.id}
+          conversationId={active.id}  
           initialMessages={active.messages}
           model={active.model}
           onModelChange={updateActiveModel}
