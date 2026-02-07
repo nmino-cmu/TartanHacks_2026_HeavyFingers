@@ -294,25 +294,8 @@ function normalizeBundle(raw: unknown, conversationId: string): ConversationBund
   }
 }
 
-async function atomicWriteJson(filePath: string, payload: unknown): Promise<void> {
-  const serialized = `${JSON.stringify(payload, null, 2)}\n`
-  const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`
-
-  await fs.writeFile(tempPath, serialized, "utf-8")
-  try {
-    await fs.rename(tempPath, filePath)
-  } catch (error) {
-    try {
-      await fs.unlink(tempPath)
-    } catch {
-      // ignore cleanup errors from best-effort temp file removal
-    }
-    throw error
-  }
-}
-
 async function saveBundle(filePath: string, bundle: ConversationBundle): Promise<void> {
-  await atomicWriteJson(filePath, bundle)
+  await fs.writeFile(filePath, `${JSON.stringify(bundle, null, 2)}\n`, "utf-8")
 }
 
 async function loadBundle(filePath: string, conversationId: string): Promise<ConversationBundle> {
@@ -417,7 +400,7 @@ async function updateGlobalActiveConversation(record: ConversationRecord): Promi
   }
 
   await fs.mkdir(path.dirname(GLOBAL_INFO_JSON_PATH), { recursive: true })
-  await atomicWriteJson(GLOBAL_INFO_JSON_PATH, current)
+  await fs.writeFile(GLOBAL_INFO_JSON_PATH, `${JSON.stringify(current, null, 2)}\n`, "utf-8")
 }
 
 async function getNextConversationId(): Promise<string> {

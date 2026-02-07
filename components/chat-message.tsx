@@ -47,10 +47,14 @@ interface ChatMessageProps {
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === "user"
 
-  const text = message.parts
+  const textFromParts = message.parts
     ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
     .join("") || ""
+  const messageWithContent = message as UIMessage & { content?: unknown }
+  const text =
+    textFromParts ||
+    (typeof messageWithContent.content === "string" ? messageWithContent.content : "")
 
   return (
     <div

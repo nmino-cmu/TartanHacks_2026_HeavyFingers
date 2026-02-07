@@ -3,7 +3,6 @@ import asyncio
 import json
 import os
 import re
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -35,7 +34,10 @@ DEFAULT_SYSTEM_PROMPT = (
 DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
 DEFAULT_GLOBAL_JSON = Path("dedalus_stuff") / "globalInfo.json"
-DEFAULT_REQUEST_TIMEOUT_SECONDS = 600
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 
 
 def emit(event_type: str, **payload: object) -> None:
@@ -141,19 +143,9 @@ def normalize_conversation_title(raw_name: str, conversation_id: str) -> str:
 
 def save_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with temp_path.open("w", encoding="utf-8", newline="\n") as handle:
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
-
-    try:
-        temp_path.replace(path)
-    except Exception:
-        try:
-            temp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise
 
 
 def ensure_conversation_bundle(path: Path, conversation_id: str) -> dict:
@@ -314,8 +306,8 @@ def run_dedalus_stream(
     model: str,
     messages: list[dict],
     stream: bool,
-    timeout_seconds: int,
 ) -> tuple[str, str]:
+    user_agent = os.getenv("DEDALUS_USER_AGENT", "").strip() or DEFAULT_USER_AGENT
     payload = {
         "model": model,
         "messages": messages,
@@ -329,12 +321,13 @@ def run_dedalus_stream(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream" if stream else "application/json",
+            "User-Agent": user_agent,
         },
         method="POST",
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             if not stream:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body)
@@ -398,17 +391,45 @@ def run_dedalus_stream(
 
                 return False
 
+            def consume_event_lines(event_lines: list[str]) -> bool:
+                if not event_lines:
+                    return False
+
+                data_lines: list[str] = []
+                for line in event_lines:
+                    if line.startswith("data:"):
+                        data_lines.append(line[len("data:") :].lstrip())
+
+                if data_lines:
+                    payload = "\n".join(data_lines).strip()
+                    if payload:
+                        return consume_chunk_payload(payload)
+                    return False
+
+                # Fallback when providers proxy non-SSE JSON despite stream=true.
+                payload = "\n".join(event_lines).strip()
+                if payload.startswith("{"):
+                    return consume_chunk_payload(payload)
+
+                return False
+
+            pending_event_lines: list[str] = []
             for raw_line in response:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line or not line.startswith("data:"):
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+
+                if not line:
+                    if consume_event_lines(pending_event_lines):
+                        break
+                    pending_event_lines = []
                     continue
 
-                payload = line[len("data:") :].strip()
-                if not payload:
+                if line.startswith(":"):
                     continue
 
-                if consume_chunk_payload(payload):
-                    break
+                pending_event_lines.append(line)
+
+            if pending_event_lines:
+                consume_event_lines(pending_event_lines)
 
             return "".join(full_text_parts), finish_reason
 
@@ -416,6 +437,8 @@ def run_dedalus_stream(
         body = error.read().decode("utf-8", errors="replace")
         default_message = f"Dedalus request failed with status {error.code}."
         message = extract_error_message_from_json(body, default_message)
+        if message == default_message and body.strip():
+            message = f"{default_message} {body[:500]}"
         raise RuntimeError(message) from error
     except urllib.error.URLError as error:
         raise RuntimeError(f"Failed to reach Dedalus API: {error.reason}") from error
@@ -512,12 +535,6 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Enable streaming token output.",
     )
-    parser.add_argument(
-        "--update-global-info",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Update globalInfo.json from this script. Disabled by default to keep a single writer on the server.",
-    )
     return parser.parse_args()
 
 
@@ -561,19 +578,8 @@ def main() -> int:
         model_name = DEFAULT_MODEL
 
     api_base_url = os.getenv("DEDALUS_API_BASE_URL", DEFAULT_API_BASE_URL).strip() or DEFAULT_API_BASE_URL
-    timeout_raw = os.getenv("DEDALUS_REQUEST_TIMEOUT_SECONDS", "").strip()
-    try:
-        timeout_seconds = int(timeout_raw) if timeout_raw else DEFAULT_REQUEST_TIMEOUT_SECONDS
-    except ValueError:
-        timeout_seconds = DEFAULT_REQUEST_TIMEOUT_SECONDS
-    if timeout_seconds < 30:
-        timeout_seconds = 30
-
     api_messages = normalize_messages_for_api(conversation_bundle)
     ensure_latest_user_message(api_messages, user_message)
-
-    assistant_text: str | None = None
-    finish_reason: str | None = None
 
     try:
         assistant_text, finish_reason = run_dedalus_stream(
@@ -582,47 +588,8 @@ def main() -> int:
             model=model_name,
             messages=api_messages,
             stream=bool(args.stream),
-            timeout_seconds=timeout_seconds,
         )
     except Exception as error:  # broad by design for CLI error surface
-        fallback_error: Exception = error
-        if HAS_DEDALUS_SDK:
-            try:
-                assistant_text, finish_reason = run_dedalus_with_sdk(
-                    api_key=dedalus_api_key,
-                    model=model_name,
-                    messages=api_messages,
-                )
-                emit("token", token=assistant_text)
-            except Exception as sdk_error:
-                fallback_error = sdk_error
-
-        if assistant_text is None:
-            if args.update_global_info:
-                try:
-                    update_global_info_json(
-                        global_json_path=global_json_path,
-                        conversation_id=conversation_id,
-                        conversation_json_path=conversation_json_path,
-                        conversation_name=str(
-                            conversation_bundle["conversation"].get("name", "")
-                        ).strip(),
-                        model_name=model_name,
-                        user_message=user_message,
-                        assistant_text=None,
-                        finish_reason="error",
-                        error_message=str(fallback_error),
-                    )
-                except Exception:
-                    pass
-            emit("error", message=str(fallback_error))
-            return 1
-
-    if not assistant_text or not assistant_text.strip():
-        emit("error", message="Dedalus returned an empty assistant response.")
-        return 1
-
-    if args.update_global_info:
         try:
             update_global_info_json(
                 global_json_path=global_json_path,
@@ -633,12 +600,35 @@ def main() -> int:
                 ).strip(),
                 model_name=model_name,
                 user_message=user_message,
-                assistant_text=assistant_text,
-                finish_reason=finish_reason,
+                assistant_text=None,
+                finish_reason="error",
+                error_message=str(error),
             )
-        except Exception as error:
-            emit("error", message=f"Failed to update global info json: {error}")
-            return 1
+        except Exception:
+            pass
+        emit("error", message=str(error))
+        return 1
+
+    if not assistant_text or not assistant_text.strip():
+        emit("error", message="Dedalus returned an empty assistant response.")
+        return 1
+
+    try:
+        update_global_info_json(
+            global_json_path=global_json_path,
+            conversation_id=conversation_id,
+            conversation_json_path=conversation_json_path,
+            conversation_name=str(
+                conversation_bundle["conversation"].get("name", "")
+            ).strip(),
+            model_name=model_name,
+            user_message=user_message,
+            assistant_text=assistant_text,
+            finish_reason=finish_reason,
+        )
+    except Exception as error:
+        emit("error", message=f"Failed to update global info json: {error}")
+        return 1
 
     emit("final", text=assistant_text, finish_reason=finish_reason)
     return 0

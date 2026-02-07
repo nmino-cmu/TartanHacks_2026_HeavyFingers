@@ -18,6 +18,14 @@ interface AskQuestionEvent {
   finish_reason?: unknown
 }
 
+const STREAM_DELTA_DELAY_MS = Math.max(
+  0,
+  Math.min(
+    20,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "4", 10) || 0,
+  ),
+)
+
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
   const sanitized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "")
@@ -97,30 +105,25 @@ function toClientError(error: unknown): string {
   return message || "Chat request failed."
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-async function emitTextAsDeltas(
-  text: string,
-  onToken: (token: string) => void,
-  options?: { chunkSize?: number; tokenDelayMs?: number },
-): Promise<void> {
-  if (!text) return
-
-  const chunkSize = options?.chunkSize ?? 24
-  const tokenDelayMs = options?.tokenDelayMs ?? 0
-
-  for (let index = 0; index < text.length; index += chunkSize) {
-    const chunk = text.slice(index, index + chunkSize)
-    onToken(chunk)
-
-    if (tokenDelayMs > 0 && index + chunkSize < text.length) {
-      await delay(tokenDelayMs)
-    }
+async function waitFor(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) {
+    return
   }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }
+
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 async function streamFromAskQuestionScript(
@@ -128,7 +131,7 @@ async function streamFromAskQuestionScript(
   conversationId: string,
   abortSignal: AbortSignal,
   onToken: (token: string) => void,
-): Promise<{ assistantText: string; finishReason: StreamFinishReason; sawTokenEvent: boolean }> {
+): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
   const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
   const conversationJsonPath = path.join(
@@ -139,6 +142,7 @@ async function streamFromAskQuestionScript(
   )
 
   const args = [
+    "-u",
     scriptPath,
     "--message",
     userMessage,
@@ -158,7 +162,10 @@ async function streamFromAskQuestionScript(
   return await new Promise((resolve, reject) => {
     const child = spawn("python3", args, {
       cwd: process.cwd(),
-      env: process.env,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     })
 
@@ -167,7 +174,6 @@ async function streamFromAskQuestionScript(
     let assistantText = ""
     let finishReason: StreamFinishReason = "stop"
     let reportedError: string | null = null
-    let sawTokenEvent = false
 
     const onAbort = () => {
       child.kill("SIGTERM")
@@ -188,14 +194,7 @@ async function streamFromAskQuestionScript(
       }
 
       if (event.type === "token" && typeof event.token === "string") {
-        const hadTokenEvent = sawTokenEvent
-        sawTokenEvent = true
-
-        if (!hadTokenEvent && event.token.length > 64) {
-          void emitTextAsDeltas(event.token, onToken, { chunkSize: 18 })
-        } else {
-          onToken(event.token)
-        }
+        onToken(event.token)
         assistantText += event.token
         return
       }
@@ -265,7 +264,7 @@ async function streamFromAskQuestionScript(
         return
       }
 
-      resolve({ assistantText, finishReason, sawTokenEvent })
+      resolve({ assistantText, finishReason })
     })
   })
 }
@@ -353,48 +352,86 @@ export async function POST(req: Request) {
         }
       },
       execute: async ({ writer }) => {
-        const responseMessageId = `assistant-${Date.now()}`
         const textPartId = `text-${Date.now()}`
+        const messageId = `assistant-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
         let finishReason: StreamFinishReason = "stop"
+        let sawTokenEvent = false
+        let streamClosed = false
+        let wakeDrain: (() => void) | null = null
+        const pendingTokens: string[] = []
 
-        writer.write({ type: "start", messageId: responseMessageId })
+        const notifyDrain = () => {
+          if (!wakeDrain) {
+            return
+          }
+
+          const resolve = wakeDrain
+          wakeDrain = null
+          resolve()
+        }
+
+        const enqueueToken = (token: string) => {
+          if (!token) {
+            return
+          }
+          pendingTokens.push(token)
+          notifyDrain()
+        }
+
+        const drainTokens = async () => {
+          while (!streamClosed || pendingTokens.length > 0) {
+            if (pendingTokens.length === 0) {
+              await new Promise<void>((resolve) => {
+                wakeDrain = resolve
+              })
+              continue
+            }
+
+            const nextToken = pendingTokens.shift() || ""
+            if (!nextToken) {
+              continue
+            }
+
+            for (const character of Array.from(nextToken)) {
+              writer.write({ type: "text-delta", id: textPartId, delta: character })
+              await waitFor(STREAM_DELTA_DELAY_MS, req.signal)
+            }
+          }
+        }
+
+        const drainPromise = drainTokens()
+
+        writer.write({ type: "start", messageId })
+        writer.write({ type: "start-step" })
         writer.write({ type: "text-start", id: textPartId })
-
-        const pythonResult = await streamFromAskQuestionScript(
-          latestUserMessage,
-          conversationId,
-          req.signal,
-          (token) => {
-            writer.write({ type: "text-delta", id: textPartId, delta: token })
-          },
-        )
-        finishReason = pythonResult.finishReason
-        if (!pythonResult.sawTokenEvent) {
-          await emitTextAsDeltas(
-            pythonResult.assistantText,
+        try {
+          const pythonResult = await streamFromAskQuestionScript(
+            latestUserMessage,
+            conversationId,
+            req.signal,
             (token) => {
-              writer.write({ type: "text-delta", id: textPartId, delta: token })
-            },
-            {
-              chunkSize: 18,
-              tokenDelayMs: 14,
+              sawTokenEvent = true
+              enqueueToken(token)
             },
           )
+          finishReason = pythonResult.finishReason
+
+          if (!sawTokenEvent && pythonResult.assistantText) {
+            enqueueToken(pythonResult.assistantText)
+          }
+        } finally {
+          streamClosed = true
+          notifyDrain()
+          await drainPromise
         }
 
         writer.write({ type: "text-end", id: textPartId })
+        writer.write({ type: "finish-step" })
         writer.write({ type: "finish", finishReason })
       },
     })
 
-    return createUIMessageStreamResponse({
-      stream,
-      headers: {
-        "Content-Encoding": "none",
-        "Cache-Control": "no-cache, no-transform",
-        "X-Accel-Buffering": "no",
-      },
-    })
+    return createUIMessageStreamResponse({ stream })
   } catch (error) {
     console.error("Failed to process chat request.", error)
     return Response.json({ error: toClientError(error) }, { status: 500 })
