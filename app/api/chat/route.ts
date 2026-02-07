@@ -18,6 +18,12 @@ interface AskQuestionEvent {
   finish_reason?: unknown
 }
 
+interface ConversationLockQueue {
+  tail: Promise<void>
+}
+
+const conversationLockQueues = new Map<string, ConversationLockQueue>()
+
 const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
@@ -103,6 +109,42 @@ function toClientError(error: unknown): string {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
   return message || "Chat request failed."
+}
+
+async function acquireConversationLock(conversationId: string): Promise<() => void> {
+  const queue = conversationLockQueues.get(conversationId) ?? { tail: Promise.resolve() }
+  const previousTail = queue.tail
+
+  let releaseGate!: () => void
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve
+  })
+
+  const nextTail = previousTail.then(
+    () => gate,
+    () => gate,
+  )
+
+  queue.tail = nextTail
+  conversationLockQueues.set(conversationId, queue)
+
+  await previousTail.catch(() => undefined)
+
+  let released = false
+  return () => {
+    if (released) {
+      return
+    }
+    released = true
+    releaseGate()
+
+    if (
+      conversationLockQueues.get(conversationId) === queue &&
+      queue.tail === nextTail
+    ) {
+      conversationLockQueues.delete(conversationId)
+    }
+  }
 }
 
 async function waitFor(ms: number, signal: AbortSignal): Promise<void> {
@@ -270,6 +312,8 @@ async function streamFromAskQuestionScript(
 }
 
 export async function POST(req: Request) {
+  let releaseConversationLock: (() => void) | null = null
+
   try {
     const dedalusApiKey = process.env.DEDALUS_API_KEY?.trim()
     if (!dedalusApiKey || dedalusApiKey === "your_key_here") {
@@ -303,12 +347,19 @@ export async function POST(req: Request) {
       )
     }
 
+    releaseConversationLock = await acquireConversationLock(
+      sanitizedRequestedConversationId,
+    )
+
     let conversationId: string
     try {
       conversationId = await persistPromptSnapshot(sanitizedRequestedConversationId, messages, {
         allowCreate: false,
       })
     } catch (error) {
+      releaseConversationLock()
+      releaseConversationLock = null
+
       const fileError = error as NodeJS.ErrnoException
       if (fileError.code === "ENOENT") {
         return Response.json(
@@ -321,6 +372,10 @@ export async function POST(req: Request) {
 
     const latestUserMessage = getLatestUserMessage(messages)
     if (!latestUserMessage) {
+      if (releaseConversationLock) {
+        releaseConversationLock()
+        releaseConversationLock = null
+      }
       return Response.json({ error: "No user message found in chat payload." }, { status: 400 })
     }
 
@@ -329,27 +384,6 @@ export async function POST(req: Request) {
       onError: (error) => {
         console.error("askQuestion.py stream failed.", error)
         return toClientError(error)
-      },
-      onFinish: async (event) => {
-        const { responseMessage, isAborted } = event as {
-          responseMessage?: UIMessage
-          isAborted?: boolean
-        }
-
-        if (isAborted || responseMessage?.role !== "assistant") {
-          return
-        }
-
-        const assistantText = extractTextFromUIMessage(responseMessage)
-        if (!assistantText.trim()) {
-          return
-        }
-
-        try {
-          await appendAssistantCompletion(conversationId, assistantText)
-        } catch (error) {
-          console.error("Failed to append assistant completion to master copy.", error)
-        }
       },
       execute: async ({ writer }) => {
         const textPartId = `text-${Date.now()}`
@@ -400,6 +434,8 @@ export async function POST(req: Request) {
         }
 
         const drainPromise = drainTokens()
+        let assistantText = ""
+        let streamCompleted = false
 
         writer.write({ type: "start", messageId })
         writer.write({ type: "start-step" })
@@ -415,24 +451,46 @@ export async function POST(req: Request) {
             },
           )
           finishReason = pythonResult.finishReason
+          assistantText = pythonResult.assistantText
 
           if (!sawTokenEvent && pythonResult.assistantText) {
             enqueueToken(pythonResult.assistantText)
           }
+          streamCompleted = true
         } finally {
           streamClosed = true
           notifyDrain()
           await drainPromise
+
+          if (streamCompleted && assistantText.trim()) {
+            try {
+              await appendAssistantCompletion(conversationId, assistantText)
+            } catch (error) {
+              console.error("Failed to append assistant completion to master copy.", error)
+            }
+          }
+
+          if (releaseConversationLock) {
+            releaseConversationLock()
+            releaseConversationLock = null
+          }
         }
 
-        writer.write({ type: "text-end", id: textPartId })
-        writer.write({ type: "finish-step" })
-        writer.write({ type: "finish", finishReason })
+        if (streamCompleted) {
+          writer.write({ type: "text-end", id: textPartId })
+          writer.write({ type: "finish-step" })
+          writer.write({ type: "finish", finishReason })
+        }
       },
     })
 
     return createUIMessageStreamResponse({ stream })
   } catch (error) {
+    if (releaseConversationLock) {
+      releaseConversationLock()
+      releaseConversationLock = null
+    }
+
     console.error("Failed to process chat request.", error)
     return Response.json({ error: toClientError(error) }, { status: 500 })
   }
