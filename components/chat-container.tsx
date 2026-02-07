@@ -96,6 +96,15 @@ interface ChatRequestAttachment {
   documentUrl?: string
 }
 
+interface CarbonStatsSummary {
+  hasData: boolean
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  footprintKg: number
+  source: "provider-usage" | "estimated" | "heuristic"
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   const chunkSize = 0x8000
@@ -193,6 +202,62 @@ function formatFootprint(kg: number): string {
     return `${kg.toFixed(3)} kg CO₂e`
   }
   return `${(kg * 1000).toFixed(2)} g CO₂e`
+}
+
+function asNonNegativeNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null
+  }
+  return value >= 0 ? value : null
+}
+
+function summarizeCarbonStats(messages: UIMessage[]): CarbonStatsSummary {
+  let promptTokens = 0
+  let completionTokens = 0
+  let totalTokens = 0
+  let footprintKg = 0
+  let source: "provider-usage" | "estimated" | "heuristic" = "heuristic"
+  let hasData = false
+
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      if (part.type !== "data-carbon-stats") {
+        continue
+      }
+
+      const data = (part as { data?: unknown }).data
+      if (!data || typeof data !== "object") {
+        continue
+      }
+      const record = data as Record<string, unknown>
+
+      const prompt = asNonNegativeNumber(record.promptTokens)
+      const completion = asNonNegativeNumber(record.completionTokens)
+      const total = asNonNegativeNumber(record.totalTokens)
+      const footprint = asNonNegativeNumber(record.footprintKg)
+
+      promptTokens += prompt ?? 0
+      completionTokens += completion ?? 0
+      totalTokens += total ?? (prompt ?? 0) + (completion ?? 0)
+      footprintKg += footprint ?? 0
+      hasData = true
+
+      if (record.source === "provider-usage") {
+        source = "provider-usage"
+      } else if (record.source === "estimated" && source !== "provider-usage") {
+        source = "estimated"
+      }
+    }
+  }
+
+  return {
+    hasData,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    footprintKg,
+    source,
+  }
 }
 
 function MenuIcon({ className }: { className?: string }) {
@@ -402,6 +467,7 @@ export function ChatContainer() {
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
     [conversations, conversationId],
   )
+  const carbonStats = useMemo(() => summarizeCarbonStats(messages), [messages])
 
   const charCount = messages.reduce((total, message) => {
     const chars =
@@ -412,8 +478,14 @@ export function ChatContainer() {
 
     return total + chars
   }, 0)
-  const tokenEstimate = charCount / CHARS_PER_TOKEN
-  const footprintKg = tokenEstimate * KG_PER_TOKEN
+  const heuristicTokenEstimate = charCount / CHARS_PER_TOKEN
+  const hasTrackedTokens = carbonStats.hasData && carbonStats.totalTokens > 0
+  const tokenEstimate = hasTrackedTokens ? carbonStats.totalTokens : heuristicTokenEstimate
+  const heuristicFootprintKg = heuristicTokenEstimate * KG_PER_TOKEN
+  const footprintKg =
+    carbonStats.hasData && carbonStats.footprintKg > 0
+      ? carbonStats.footprintKg
+      : heuristicFootprintKg
 
   const resetAttachmentUiState = useCallback(() => {
     setPendingAttachments([])
@@ -1159,10 +1231,19 @@ export function ChatContainer() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{formatFootprint(footprintKg)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
-              <p className="text-xs text-muted-foreground">Estimated tokens</p>
+              <p className="text-xs text-muted-foreground">
+                {hasTrackedTokens ? "Tracked tokens" : "Estimated tokens"}
+              </p>
               <p className="mt-1 text-2xl font-semibold text-foreground">
                 {Math.max(0, Math.round(tokenEstimate)).toLocaleString()}
               </p>
+              {hasTrackedTokens ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Prompt {Math.max(0, Math.round(carbonStats.promptTokens)).toLocaleString()} • Completion{" "}
+                  {Math.max(0, Math.round(carbonStats.completionTokens)).toLocaleString()} (
+                  {carbonStats.source === "provider-usage" ? "provider usage" : "estimated"})
+                </p>
+              ) : null}
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Characters processed</p>

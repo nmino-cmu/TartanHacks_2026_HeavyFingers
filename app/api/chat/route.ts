@@ -18,6 +18,17 @@ interface AskQuestionEvent {
   text?: unknown
   message?: unknown
   finish_reason?: unknown
+  prompt_tokens?: unknown
+  completion_tokens?: unknown
+  total_tokens?: unknown
+  carbon_kg?: unknown
+}
+
+interface AskQuestionUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  carbonKg?: number
 }
 
 interface UploadedOcrAttachment {
@@ -114,6 +125,7 @@ const MIN_HISTORY_WINDOW_MESSAGES = 6
 const MAX_HISTORY_WINDOW_MESSAGES = 24
 const MIN_HISTORY_SUMMARY_CHARS = 900
 const MAX_HISTORY_SUMMARY_CHARS = 4200
+const FALLBACK_KG_PER_TOKEN = 0.0000005
 
 const DEFAULT_CARBON_SETTINGS: CarbonRoutingSettings = {
   routingSensitivity: 55,
@@ -1122,7 +1134,7 @@ async function streamFromAskQuestionScript(
     historyWindowMessages?: number
     historySummaryMaxChars?: number
   },
-): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
+): Promise<{ assistantText: string; finishReason: StreamFinishReason; usage: AskQuestionUsage | null }> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
   const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
   const conversationJsonPath = path.join(
@@ -1184,6 +1196,7 @@ async function streamFromAskQuestionScript(
     let assistantText = ""
     let finishReason: StreamFinishReason = "stop"
     let reportedError: string | null = null
+    let usage: AskQuestionUsage | null = null
 
     const onAbort = () => {
       child.kill("SIGTERM")
@@ -1216,6 +1229,32 @@ async function streamFromAskQuestionScript(
         if (typeof event.finish_reason === "string") {
           finishReason = normalizeFinishReason(event.finish_reason)
         }
+        return
+      }
+
+      if (event.type === "usage") {
+        const promptTokens =
+          typeof event.prompt_tokens === "number" && Number.isFinite(event.prompt_tokens)
+            ? Math.max(0, Math.round(event.prompt_tokens))
+            : 0
+        const completionTokens =
+          typeof event.completion_tokens === "number" && Number.isFinite(event.completion_tokens)
+            ? Math.max(0, Math.round(event.completion_tokens))
+            : 0
+        const totalTokens =
+          typeof event.total_tokens === "number" && Number.isFinite(event.total_tokens)
+            ? Math.max(0, Math.round(event.total_tokens))
+            : promptTokens + completionTokens
+
+        const nextUsage: AskQuestionUsage = {
+          promptTokens,
+          completionTokens,
+          totalTokens,
+        }
+        if (typeof event.carbon_kg === "number" && Number.isFinite(event.carbon_kg) && event.carbon_kg >= 0) {
+          nextUsage.carbonKg = event.carbon_kg
+        }
+        usage = nextUsage
         return
       }
 
@@ -1270,7 +1309,7 @@ async function streamFromAskQuestionScript(
         return
       }
 
-      resolve({ assistantText, finishReason })
+      resolve({ assistantText, finishReason, usage })
     })
   })
 }
@@ -1508,6 +1547,7 @@ export async function POST(req: Request) {
       }
     }
 
+    const estimatedPromptTokens = splitIntoStreamingTokens(promptForModel).length
     const stream = createUIMessageStream({
       originalMessages: messages,
       onError: (error) => {
@@ -1522,6 +1562,8 @@ export async function POST(req: Request) {
         let streamClosed = false
         let wakeDrain: (() => void) | null = null
         const pendingTokens: string[] = []
+        let estimatedCompletionTokens = 0
+        let usageSummary: AskQuestionUsage | null = null
 
         const notifyDrain = () => {
           if (!wakeDrain) {
@@ -1542,6 +1584,7 @@ export async function POST(req: Request) {
           if (tokens.length === 0) {
             return
           }
+          estimatedCompletionTokens += tokens.length
 
           for (const token of tokens) {
             pendingTokens.push(token)
@@ -1602,7 +1645,9 @@ export async function POST(req: Request) {
             return
           }
 
-          let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
+          let pythonResult:
+            | { assistantText: string; finishReason: StreamFinishReason; usage: AskQuestionUsage | null }
+            | null = null
           let lastModelError: unknown = null
           const modelCandidates = getModelExecutionChain(routingDecision)
           const scriptOptions = {
@@ -1656,6 +1701,7 @@ export async function POST(req: Request) {
                 }
 
                 modelUsedForResponse = candidateModel
+                usageSummary = pythonResult.usage
                 break
               } catch (error) {
                 lastModelError = error
@@ -1729,6 +1775,23 @@ export async function POST(req: Request) {
         }
 
         if (streamCompleted) {
+          const promptTokens = usageSummary?.promptTokens ?? estimatedPromptTokens
+          const completionTokens = usageSummary?.completionTokens ?? estimatedCompletionTokens
+          const totalTokens = usageSummary?.totalTokens ?? promptTokens + completionTokens
+          const footprintKg =
+            usageSummary?.carbonKg ??
+            Math.max(0, totalTokens) * FALLBACK_KG_PER_TOKEN
+          writer.write({
+            type: "data-carbon-stats",
+            data: {
+              promptTokens,
+              completionTokens,
+              totalTokens,
+              footprintKg,
+              model: modelUsedForResponse,
+              source: usageSummary ? "provider-usage" : "estimated",
+            },
+          })
           writer.write({ type: "text-end", id: textPartId })
           writer.write({ type: "finish-step" })
           writer.write({ type: "finish", finishReason })

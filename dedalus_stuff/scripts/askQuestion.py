@@ -1,8 +1,10 @@
 import argparse
 import asyncio
 import json
+import math
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -382,6 +384,95 @@ def extract_stream_tokens_from_choice(choice: dict) -> list[str]:
     return fragments
 
 
+def to_non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        if math.isfinite(value):
+            as_int = int(round(value))
+            return as_int if as_int >= 0 else None
+        return None
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        try:
+            parsed = int(trimmed)
+        except ValueError:
+            return None
+        return parsed if parsed >= 0 else None
+    return None
+
+
+def normalize_usage_payload(raw_usage: object) -> dict[str, int] | None:
+    if not isinstance(raw_usage, dict):
+        return None
+
+    prompt_tokens = to_non_negative_int(
+        raw_usage.get("prompt_tokens", raw_usage.get("input_tokens"))
+    )
+    completion_tokens = to_non_negative_int(
+        raw_usage.get("completion_tokens", raw_usage.get("output_tokens"))
+    )
+    total_tokens = to_non_negative_int(raw_usage.get("total_tokens"))
+
+    if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+        total_tokens = prompt_tokens + completion_tokens
+
+    if total_tokens is not None:
+        if prompt_tokens is None and completion_tokens is not None:
+            prompt_tokens = max(total_tokens - completion_tokens, 0)
+        if completion_tokens is None and prompt_tokens is not None:
+            completion_tokens = max(total_tokens - prompt_tokens, 0)
+
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        return None
+
+    prompt_tokens = prompt_tokens or 0
+    completion_tokens = completion_tokens or 0
+    total_tokens = total_tokens or (prompt_tokens + completion_tokens)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def calculate_carbon_from_env_costs(
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> float | None:
+    if prompt_tokens < 0 or completion_tokens < 0:
+        return None
+
+    repo_root = Path(__file__).resolve().parents[2]
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+
+    try:
+        import env_costs  # type: ignore
+    except Exception:
+        return None
+
+    get_cost = getattr(env_costs, "get_cost", None)
+    if not callable(get_cost):
+        return None
+
+    try:
+        value = get_cost(model_name, prompt_tokens, completion_tokens)
+    except Exception:
+        return None
+
+    if isinstance(value, (int, float)) and math.isfinite(value) and value >= 0:
+        return float(value)
+    return None
+
+
 def run_dedalus_stream(
     *,
     api_key: str,
@@ -391,7 +482,7 @@ def run_dedalus_stream(
     stream: bool,
     max_tokens: int | None = None,
     available_models: list[str] | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict[str, int] | None]:
     user_agent = os.getenv("DEDALUS_USER_AGENT", "").strip() or DEFAULT_USER_AGENT
     payload = {
         "model": model,
@@ -433,13 +524,15 @@ def run_dedalus_stream(
                 normalized_reason = (
                     map_finish_reason(finish_reason) if isinstance(finish_reason, str) else "stop"
                 )
-                return content, normalized_reason
+                usage = normalize_usage_payload(parsed.get("usage")) if isinstance(parsed, dict) else None
+                return content, normalized_reason, usage
 
             full_text_parts: list[str] = []
             finish_reason = "stop"
+            usage_counts: dict[str, int] | None = None
             
             def consume_chunk_payload(payload: str) -> bool:
-                nonlocal finish_reason
+                nonlocal finish_reason, usage_counts
 
                 if payload == "[DONE]":
                     return True
@@ -452,6 +545,9 @@ def run_dedalus_stream(
 
                 if not isinstance(chunk, dict):
                     return False
+
+                if usage_counts is None:
+                    usage_counts = normalize_usage_payload(chunk.get("usage"))
 
                 error_obj = chunk.get("error")
                 if isinstance(error_obj, dict):
@@ -468,6 +564,9 @@ def run_dedalus_stream(
                         for token in extract_stream_tokens_from_choice(choice):
                             full_text_parts.append(token)
                             emit("token", token=token)
+
+                        if usage_counts is None:
+                            usage_counts = normalize_usage_payload(choice.get("usage"))
 
                         reason = choice.get("finish_reason")
                         if isinstance(reason, str) and reason:
@@ -520,7 +619,7 @@ def run_dedalus_stream(
             if pending_event_lines:
                 consume_event_lines(pending_event_lines)
 
-            return "".join(full_text_parts), finish_reason
+            return "".join(full_text_parts), finish_reason, usage_counts
 
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
@@ -733,7 +832,7 @@ def main() -> int:
     ensure_latest_user_message(api_messages, user_message)
 
     try:
-        assistant_text, finish_reason = run_dedalus_stream(
+        assistant_text, finish_reason, usage = run_dedalus_stream(
             api_key=dedalus_api_key,
             api_base_url=api_base_url,
             model=model_name,
@@ -766,6 +865,20 @@ def main() -> int:
     if not assistant_text or not assistant_text.strip():
         emit("error", message="Dedalus returned an empty assistant response.")
         return 1
+
+    if isinstance(usage, dict):
+        prompt_tokens = to_non_negative_int(usage.get("prompt_tokens")) or 0
+        completion_tokens = to_non_negative_int(usage.get("completion_tokens")) or 0
+        total_tokens = to_non_negative_int(usage.get("total_tokens")) or (prompt_tokens + completion_tokens)
+        usage_event_payload: dict[str, object] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+        carbon_kg = calculate_carbon_from_env_costs(model_name, prompt_tokens, completion_tokens)
+        if carbon_kg is not None:
+            usage_event_payload["carbon_kg"] = carbon_kg
+        emit("usage", **usage_event_payload)
 
     if args.update_global_info:
         try:
