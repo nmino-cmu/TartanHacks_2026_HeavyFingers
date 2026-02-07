@@ -1,3 +1,13 @@
 /HeavyFingersTartanHacks
+wallet.json
+wallet*.json
+todo.md
 .env
+.env.local
+package-lock.json
+/node_modules
+/.next
 /dedalus_stuff/conversations
+
+repomix-output.xml
+repomix-output-*.xml
