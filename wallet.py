@@ -68,8 +68,6 @@ def sendCheck(seed, amount, destination):
         reply=f"Submit failed: {e}"
     return reply
 
-createWallet(JSON_WALLET1)
-createWallet(JSON_WALLET2)
-seed = getSeed(JSON_WALLET2)
-address = getAddress(JSON_WALLET1)
-print(sendCheck(seed, "10", address)) 
+createWallet(JSON_WALLET)
+seed = getSeed(JSON_WALLET)
+print(sendCheck(seed, "10", EVERY_DONATE_ADDRESS)) 
