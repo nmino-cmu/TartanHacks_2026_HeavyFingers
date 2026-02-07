@@ -40,7 +40,7 @@ charities = {"earthday.org": "133798288",
              "Environmental Defense Fund":"116107128"}
 
 
-def get_donate_address(nonprofit_ein, amount, name, email):
+def get_donate_address(nonprofit_ein, name, email):
     payload = {
         "ein": charities[nonprofit_ein],
         "asset": "XRP",
