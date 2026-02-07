@@ -18,4 +18,4 @@ cost_per_token = {
     "openai/gpt-4-32k":                 {"input": 3.00e-06, "output": 12.00e-06}
 }
 def get_cost(model, input_token, output_token):
-   return cost_per_token[model]["input"]*input_token +  cost_per_token[model]["output"]*output_token 
+   return .14*(cost_per_token[model]["input"]*input_token +  cost_per_token[model]["output"]*output_token)
