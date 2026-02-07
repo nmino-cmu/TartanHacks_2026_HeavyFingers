@@ -1170,7 +1170,7 @@ async function streamFromAskQuestionScript(
   }
 
   return await new Promise((resolve, reject) => {
-    const child = spawn("python3", args, {
+    const child = spawn("python", args, {
       cwd: process.cwd(),
       env: {
         ...process.env,

@@ -1,11 +1,19 @@
 {
   "activeFileDetails": {
     "existsActive": true,
+<<<<<<< HEAD
     "activeChatIndex": 13,
     "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
   },
   "convoName": "Demo Convo",
   "convoIndex": 13,
+=======
+    "activeChatIndex": 3,
+    "activeJsonFilePath": "C:\\Users\\ASUS\\Documents\\GitHub\\th26\\dedalus_stuff\\conversations\\conversation3.json"
+  },
+  "convoName": "Conversation 3",
+  "convoIndex": 25,
+>>>>>>> michael_ui_fixes
   "carbonFootprint": 0,
   "permanent memories": []
 }
