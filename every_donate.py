@@ -1,8 +1,9 @@
 import requests
 import json 
 
-charities = {"The Nature Conservancy": "53-0242652", 
-             }
+charities = {"earthday.org": "133798288", 
+             "Pacific Environmental Coalition":"843138671",
+             "Environmental Defense Fund":"116107128"}
 
 
 def get_donate_address(nonprofit_ein, amount, name, email):
