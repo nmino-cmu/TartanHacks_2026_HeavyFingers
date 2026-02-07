@@ -14,19 +14,52 @@ const WALLET_PASSPHRASE = process.env.WALLET_PASSPHRASE
 
 type WalletAction = "create" | "info" | "send-check" | "import" | "txs"
 
+function normalizeWalletError(message: string): string {
+  const normalized = message.toLowerCase()
+  if (
+    normalized.includes("nodename nor servname provided") ||
+    normalized.includes("name or service not known") ||
+    normalized.includes("temporary failure in name resolution")
+  ) {
+    return "Could not reach the XRPL Testnet endpoint. Check your internet/DNS and try again."
+  }
+  if (normalized.includes("passphrase is required")) {
+    return "Wallet passphrase missing. Set WALLET_PASSPHRASE in your environment."
+  }
+  return message
+}
+
 async function runWalletCommand(args: string[]) {
   if (!WALLET_PASSPHRASE) {
     throw new Error("Set WALLET_PASSPHRASE in the environment before using the wallet.")
   }
 
-  const { stdout, stderr } = await execFileAsync(PYTHON_BIN, args, {
-    timeout: 25_000,
-    env: { ...process.env, WALLET_PASSPHRASE },
-  })
+  let stdout = ""
+  let stderr = ""
+  try {
+    const result = await execFileAsync(PYTHON_BIN, args, {
+      timeout: 25_000,
+      env: { ...process.env, WALLET_PASSPHRASE },
+    })
+    stdout = result.stdout
+    stderr = result.stderr
+  } catch (error) {
+    const execError = error as NodeJS.ErrnoException & {
+      stdout?: string
+      stderr?: string
+    }
+    stdout = execError.stdout ?? ""
+    stderr = execError.stderr ?? ""
+
+    // wallet.py writes structured JSON errors to stdout; preserve those.
+    if (!stdout.trim()) {
+      throw new Error(normalizeWalletError(stderr || execError.message || "Wallet script failed."))
+    }
+  }
 
   // If the script writes errors to stderr but still returns JSON, prefer stdout.
   if (!stdout?.trim()) {
-    throw new Error(stderr || "Wallet script produced no output")
+    throw new Error(normalizeWalletError(stderr || "Wallet script produced no output"))
   }
 
   let parsed
@@ -37,7 +70,7 @@ async function runWalletCommand(args: string[]) {
   }
 
   if (parsed.status === "error") {
-    throw new Error(parsed.error || "Wallet script error")
+    throw new Error(normalizeWalletError(parsed.error || "Wallet script error"))
   }
 
   // Do not expose the seed or raw payload to the client.
