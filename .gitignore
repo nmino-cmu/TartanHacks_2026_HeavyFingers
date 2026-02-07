@@ -1,5 +1,7 @@
 /HeavyFingersTartanHacks
 .env
+.env.local
 package-lock.json
 /node_modules
 /.next
+/dedalus_stuff/conversations
