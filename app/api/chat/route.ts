@@ -30,7 +30,7 @@ const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
 const ALLOWED_MODELS = new Set<string>([
   "openai/gpt-4o-mini",
-  "anthropic/claude-3-5-sonnet",
+  "anthropic/claude-opus-4-5",
   "google/gemini-1.5-pro",
 ]);
 

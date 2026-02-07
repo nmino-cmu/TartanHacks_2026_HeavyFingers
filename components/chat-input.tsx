@@ -110,7 +110,7 @@ export function ChatInput({
 
             <SelectContent className="rounded-2xl">
               <SelectItem value="openai/gpt-4o-mini">OpenAI · GPT-4o mini</SelectItem>
-              <SelectItem value="anthropic/claude-3-5-sonnet">Anthropic · Claude 3.5 Sonnet</SelectItem>
+              <SelectItem value="anthropic/claude-opus-4-5">Anthropic · Claude 3.5 Sonnet</SelectItem>
               <SelectItem value="google/gemini-1.5-pro">Google · Gemini 1.5 Pro</SelectItem>
             </SelectContent>
           </Select>
