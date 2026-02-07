@@ -35,4 +35,3 @@ def get_donate_address(nonprofit_ein, amount, name, email):
 
     return deposit_addr 
 
-
