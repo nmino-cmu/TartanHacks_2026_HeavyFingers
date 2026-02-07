@@ -1,5 +1,6 @@
 /HeavyFingersTartanHacks
 wallet.json
+wallet*.json
 todo.md
 .env
 .env.local
@@ -9,3 +10,4 @@ package-lock.json
 /dedalus_stuff/conversations
 
 repomix-output.xml
+repomix-output-*.xml

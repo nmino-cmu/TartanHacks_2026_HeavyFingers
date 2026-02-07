@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,6 +10,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -20,6 +30,7 @@ import {
   CircleDollarSign,
   DownloadCloud,
   Leaf,
+  KeyRound,
   RefreshCw,
   ShieldCheck,
   Wallet2,
@@ -55,11 +66,13 @@ function formatBalance(drops?: string) {
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState<WalletData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<"create" | "refresh" | "send" | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState<"create" | "refresh" | "send" | "import" | null>(null)
   const [seedVisible, setSeedVisible] = useState(false)
   const [amount, setAmount] = useState("10")
   const [destination, setDestination] = useState(DEFAULT_DESTINATION)
+  const [importSeed, setImportSeed] = useState("")
+  const [confirmCreateOpen, setConfirmCreateOpen] = useState(false)
 
   const hasWallet = Boolean(wallet?.address)
 
@@ -102,6 +115,14 @@ export default function WalletPage() {
     setBusy(null)
   }
 
+  function handleCreateClick() {
+    if (hasWallet) {
+      setConfirmCreateOpen(true)
+      return
+    }
+    handleCreate()
+  }
+
   async function handleRefresh() {
     setBusy("refresh")
     await loadWallet(true)
@@ -131,9 +152,26 @@ export default function WalletPage() {
     setBusy(null)
   }
 
-  useEffect(() => {
-    loadWallet()
-  }, [])
+  async function handleImport(e: React.FormEvent) {
+    e.preventDefault()
+    const trimmedSeed = importSeed.trim()
+    if (!trimmedSeed) {
+      toast({ title: "Enter a seed", description: "Paste the secret seed to import.", variant: "destructive" })
+      return
+    }
+
+    setBusy("import")
+    const response = await request("POST", { action: "import", seed: trimmedSeed })
+    if (response.status === "ok") {
+      setWallet(response.data)
+      setSeedVisible(false)
+      setImportSeed("")
+      toast({ title: "Wallet imported", description: "Loaded balance from the XRPL testnet." })
+    } else {
+      toast({ title: "Import failed", description: response.error, variant: "destructive" })
+    }
+    setBusy(null)
+  }
 
   return (
     <div className="mosaic-bg min-h-dvh pb-16">
@@ -165,8 +203,8 @@ export default function WalletPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="bg-white/15 text-white backdrop-blur">Testnet only</Badge>
-                <Badge variant="secondary" className="bg-black/20 text-white">
+                <Badge className="bg-white/30 text-white backdrop-blur">Testnet only</Badge>
+                <Badge variant="secondary" className="bg-black/40 text-white">
                   Seed stays local
                 </Badge>
               </div>
@@ -174,7 +212,61 @@ export default function WalletPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-5">
+        {!hasWallet && !loading && (
+          <Card className="border-dashed border-primary/30 bg-card/70 shadow-lg">
+            <CardHeader>
+              <CardTitle>No wallet connected</CardTitle>
+              <CardDescription>
+                Start fresh on XRPL Testnet or import an existing wallet seed from your machine.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-6 md:grid-cols-5">
+              <div className="md:col-span-2 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Create and fund a brand-new testnet wallet using the faucet. Your seed is stored only on disk in
+                  <code className="ml-1 rounded bg-muted px-1 py-0.5 text-xs">wallet/wallets/wallet.json</code>.
+                </p>
+                <Button
+                  size="lg"
+                  onClick={handleCreateClick}
+                  disabled={busy === "create"}
+                  className="gap-2"
+                >
+                  <Wallet2 className="h-4 w-4" />
+                  Create a testnet wallet
+                </Button>
+              </div>
+              <div className="md:col-span-3">
+                <form className="space-y-3" onSubmit={handleImport}>
+                  <Label htmlFor="import-seed" className="flex items-center gap-2 text-sm">
+                    <KeyRound className="h-4 w-4 text-emerald-700" />
+                    Import an existing seed
+                  </Label>
+                  <Input
+                    id="import-seed"
+                    value={importSeed}
+                    onChange={(e) => setImportSeed(e.target.value)}
+                    placeholder="s██████████████████████████"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <span>We never send your seed anywhere else—the API shells into wallet.py locally.</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" disabled={busy === "import"} className="gap-2">
+                      <ArrowRight className="h-4 w-4" />
+                      Import &amp; load wallet
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setImportSeed("")}>Clear</Button>
+                  </div>
+                </form>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className={cn("grid gap-6 md:grid-cols-5", !hasWallet && "opacity-50 pointer-events-none")}> 
           <Card className="md:col-span-3 border-border/70 bg-card/90 shadow-lg">
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
@@ -194,7 +286,7 @@ export default function WalletPage() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={handleCreate}
+                  onClick={handleCreateClick}
                   disabled={busy === "create"}
                   className="gap-2"
                 >
@@ -336,6 +428,39 @@ export default function WalletPage() {
           </Card>
         </div>
       </div>
+
+      <AlertDialog open={confirmCreateOpen} onOpenChange={setConfirmCreateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Recreate your wallet?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Making a new wallet replaces the current one and writes a fresh seed to disk. Do this only when:
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-foreground">
+                <li>You suspect your current seed is compromised.</li>
+                <li>You need a clean faucet-funded testnet balance to demo from zero.</li>
+                <li>The local wallet file is corrupted and cannot load.</li>
+              </ul>
+              <p className="text-muted-foreground">Otherwise keep your existing wallet so past checks and balances stay accessible.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === "create"}>Keep current wallet</AlertDialogCancel>
+            <AlertDialogAction
+              className="gap-2"
+              disabled={busy === "create"}
+              onClick={() => {
+                setConfirmCreateOpen(false)
+                handleCreate()
+              }}
+            >
+              <DownloadCloud className="h-4 w-4" />
+              Yes, make a new wallet
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -9,7 +9,7 @@ const WALLET_SCRIPT = path.join(process.cwd(), "wallet", "wallet.py")
 const DEFAULT_WALLET_PATH = path.join(process.cwd(), "wallet", "wallets", "wallet.json")
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3"
 
-type WalletAction = "create" | "info" | "send-check"
+type WalletAction = "create" | "info" | "send-check" | "import"
 
 async function runWalletCommand(args: string[]) {
   const { stdout, stderr } = await execFileAsync(PYTHON_BIN, args, {
@@ -74,6 +74,22 @@ async function handleAction(action: WalletAction, payload: any) {
         destination,
         "--amount",
         String(amount),
+      ]
+      return runWalletCommand(args)
+    }
+    case "import": {
+      const seed = payload?.seed
+      if (!seed || typeof seed !== "string") {
+        throw new Error("seed is required for import")
+      }
+      const args = [
+        WALLET_SCRIPT,
+        "import",
+        "--wallet-file",
+        payload?.walletFile || DEFAULT_WALLET_PATH,
+        "--seed",
+        seed,
+        "--refresh",
       ]
       return runWalletCommand(args)
     }

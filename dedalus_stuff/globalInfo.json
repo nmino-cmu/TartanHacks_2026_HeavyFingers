@@ -1,11 +1,11 @@
 {
-    "activeFileDetails": {
-        "existsActive": "",
-        "activeChatIndex": "",
-        "activeJsonFilePath": ""
-    },
-    "convoIndex": 0,
-    "carbonFootprint": 0,
-    "permanent memories": [],
-    "globalPrompt": ""
+  "activeFileDetails": {
+    "existsActive": true,
+    "activeChatIndex": 3,
+    "activeJsonFilePath": "/home/sportsman/coding/hackathons/tartanhacks26/dedalus_stuff/conversations/conversation3.json"
+  },
+  "convoName": "Conversation 3",
+  "convoIndex": 25,
+  "carbonFootprint": 0,
+  "permanent memories": []
 }

@@ -50,6 +50,41 @@ def create_wallet(wallet_file: Path = DEFAULT_WALLET_FILE) -> Dict[str, Any]:
     }
 
 
+def import_wallet(seed: str, wallet_file: Path = DEFAULT_WALLET_FILE, refresh: bool = True) -> Dict[str, Any]:
+    wallet = Wallet.from_seed(seed)
+
+    account_data: Dict[str, Any] | None = None
+    validated_ledger: Dict[str, Any] | None = None
+
+    if refresh:
+        try:
+            response = client.request(
+                AccountInfo(account=wallet.classic_address, ledger_index="validated", strict=True)
+            )
+            account_data = response.result.get("account_data")
+            validated_ledger = response.result.get("validated_ledger")
+        except Exception:  # account may be unfunded; fail softly
+            account_data = None
+            validated_ledger = None
+
+    payload: Dict[str, Any] = {
+        "account_data": account_data,
+        "validated_ledger": validated_ledger,
+        "seed": seed,
+    }
+
+    _write_json(wallet_file, payload)
+
+    return {
+        "address": wallet.classic_address,
+        "seed": seed,
+        "file": str(wallet_file),
+        "account_data": account_data,
+        "validated_ledger": validated_ledger,
+        "explorer_url": f"https://testnet.xrpl.org/accounts/{wallet.classic_address}",
+    }
+
+
 def load_wallet(wallet_file: Path = DEFAULT_WALLET_FILE) -> Dict[str, Any]:
     if not wallet_file.exists():
         raise FileNotFoundError(
@@ -151,6 +186,20 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser.add_argument("--destination", required=True)
     send_parser.add_argument("--amount", required=True, help="Amount in XRP for the check")
 
+    import_parser = subparsers.add_parser("import", help="Import an existing seed")
+    import_parser.add_argument(
+        "--wallet-file",
+        default=DEFAULT_WALLET_FILE,
+        type=Path,
+        help="Path to wallet JSON file",
+    )
+    import_parser.add_argument("--seed", required=True, help="Existing XRPL seed")
+    import_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Attempt to load on-ledger account info for the seed",
+    )
+
     return parser
 
 
@@ -172,6 +221,8 @@ def main() -> None:
                 data["validated_ledger"] = refreshed.get("validated_ledger")
         elif args.command == "send-check":
             data = send_check(args.wallet_file, str(args.amount), args.destination)
+        elif args.command == "import":
+            data = import_wallet(args.seed, args.wallet_file, refresh=args.refresh)
         else:
             raise ValueError(f"Unsupported command: {args.command}")
 
