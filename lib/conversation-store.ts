@@ -71,6 +71,14 @@ export interface ConversationSummary {
   messageCount: number
 }
 
+interface ConversationSummaryCacheEntry {
+  mtimeMs: number
+  size: number
+  summary: ConversationSummary
+}
+
+const conversationSummaryCache = new Map<string, ConversationSummaryCacheEntry>()
+
 function createMessageId(role: StoredRole): string {
   return `${role}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
 }
@@ -442,12 +450,25 @@ export async function getActiveConversationIdForUi(): Promise<string | null> {
 async function updateGlobalActiveConversation(record: ConversationRecord): Promise<void> {
   const current = normalizeGlobalInfoPayload(await loadGlobalPayload())
   const conversationIndex = getConversationIndex(record.conversationId)
-  current.activeFileDetails.existsActive = true
-  current.activeFileDetails.activeJsonFilePath = record.filePath
-  current.convoName = normalizeConversationTitle(
+  const conversationTitle = normalizeConversationTitle(
     record.bundle.conversation.name,
     record.conversationId,
   )
+  const shouldUpdateActivePath =
+    current.activeFileDetails.existsActive !== true ||
+    current.activeFileDetails.activeJsonFilePath !== record.filePath
+  const shouldUpdateName = current.convoName !== conversationTitle
+  const shouldUpdateIndex =
+    conversationIndex !== null &&
+    (current.activeFileDetails.activeChatIndex !== conversationIndex || current.convoIndex < conversationIndex)
+
+  if (!shouldUpdateActivePath && !shouldUpdateName && !shouldUpdateIndex) {
+    return
+  }
+
+  current.activeFileDetails.existsActive = true
+  current.activeFileDetails.activeJsonFilePath = record.filePath
+  current.convoName = conversationTitle
   if (conversationIndex !== null) {
     current.activeFileDetails.activeChatIndex = conversationIndex
     current.convoIndex = Math.max(current.convoIndex, conversationIndex)
@@ -636,6 +657,7 @@ export async function deleteConversationForUi(
 
   const filePath = buildConversationFilePath(sanitizedConversationId)
   await fs.unlink(filePath)
+  conversationSummaryCache.delete(sanitizedConversationId)
 
   const remainingConversations = await listConversationsForUi()
   const preferredActiveId = sanitizeConversationId(preferredActiveConversationId)
@@ -686,34 +708,92 @@ function toTimestamp(value: string): number {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
+function createConversationSummary(
+  conversationId: string,
+  bundle: ConversationBundle,
+): ConversationSummary {
+  return {
+    conversationId,
+    title: normalizeConversationTitle(bundle.conversation.name, conversationId),
+    updatedAt: bundle.conversation.updated_at || bundle.conversation.created_at,
+    messageCount: bundle.messages.messages.length,
+  }
+}
+
 export async function listConversationsForUi(): Promise<ConversationSummary[]> {
   await fs.mkdir(CONVERSATIONS_DIR, { recursive: true })
   const files = await fs.readdir(CONVERSATIONS_DIR)
 
-  const summaries: ConversationSummary[] = []
-
-  for (const fileName of files) {
+  const conversationFiles = files.flatMap((fileName) => {
     if (!fileName.endsWith(".json")) {
-      continue
+      return []
     }
 
     const conversationId = fileName.slice(0, -5)
     if (!conversationId) {
-      continue
+      return []
     }
 
-    const filePath = path.join(CONVERSATIONS_DIR, fileName)
-
-    try {
-      const bundle = await loadBundle(filePath, conversationId)
-      summaries.push({
+    return [
+      {
+        fileName,
         conversationId,
-        title: normalizeConversationTitle(bundle.conversation.name, conversationId),
-        updatedAt: bundle.conversation.updated_at || bundle.conversation.created_at,
-        messageCount: bundle.messages.messages.length,
-      })
-    } catch (error) {
-      console.error(`Skipping unreadable conversation file: ${fileName}`, error)
+        filePath: path.join(CONVERSATIONS_DIR, fileName),
+      },
+    ]
+  })
+
+  const summaries: ConversationSummary[] = []
+  const filesToLoad: Array<{
+    fileName: string
+    conversationId: string
+    filePath: string
+    mtimeMs: number
+    size: number
+  }> = []
+  const conversationIdsOnDisk = new Set(conversationFiles.map((file) => file.conversationId))
+
+  await Promise.all(
+    conversationFiles.map(async (file) => {
+      try {
+        const stat = await fs.stat(file.filePath)
+        const cached = conversationSummaryCache.get(file.conversationId)
+        if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+          summaries.push(cached.summary)
+          return
+        }
+
+        filesToLoad.push({
+          ...file,
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+        })
+      } catch (error) {
+        console.error(`Skipping unreadable conversation file: ${file.fileName}`, error)
+      }
+    }),
+  )
+
+  await Promise.all(
+    filesToLoad.map(async (file) => {
+      try {
+        const bundle = await loadBundle(file.filePath, file.conversationId)
+        const summary = createConversationSummary(file.conversationId, bundle)
+        conversationSummaryCache.set(file.conversationId, {
+          mtimeMs: file.mtimeMs,
+          size: file.size,
+          summary,
+        })
+        summaries.push(summary)
+      } catch (error) {
+        console.error(`Skipping unreadable conversation file: ${file.fileName}`, error)
+      }
+    }),
+  )
+
+  for (const cachedConversationId of conversationSummaryCache.keys()) {
+    if (!conversationIdsOnDisk.has(cachedConversationId)) {
+      conversationSummaryCache.delete(cachedConversationId)
     }
   }
 
