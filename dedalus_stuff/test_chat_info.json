@@ -10,8 +10,7 @@
       "name": "claude-opus-4-5"
     },
     "messages": {
-        "LLMs": [],
-        "users": [],
+        "messages": [],
         "filepaths": [],
         "tools": [],
         "notes": ""
