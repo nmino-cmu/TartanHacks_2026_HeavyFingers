@@ -39,7 +39,7 @@ const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
     40,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "12", 10) || 0,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "2", 10) || 0,
   ),
 )
 const STREAM_DELTA_CHARS = Math.max(
