@@ -1,3 +1,8 @@
 /HeavyFingersTartanHacks
 .env
+package-lock.json
+/node_modules
+/.next
 /dedalus_stuff/conversations
+
+repomix-output.xml

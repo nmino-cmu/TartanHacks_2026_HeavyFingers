@@ -11,3 +11,6 @@ get a dedalus labs API key
 Make a .env file in this directory
 
 Put this line in it: DEDALUS_API_KEY=dsk-test-.....
+
+Frontend:
+npm install --legacy-peer-deps
