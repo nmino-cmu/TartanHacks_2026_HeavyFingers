@@ -571,7 +571,7 @@ async function handleSelectCharity(value: string, opts?: { preservePreset?: bool
                   await handleSelectCharity("earthday.org", { preservePreset: true })
                 }}
               >
-                <SelectTrigger id="canopy" placeholder="Pick trees & carbon" className="text-left">
+                <SelectTrigger id="canopy" className="text-left">
                   <SelectValue placeholder="Pick trees & carbon" />
                 </SelectTrigger>
                 <SelectContent>

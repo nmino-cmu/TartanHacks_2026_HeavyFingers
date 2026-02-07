@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
@@ -19,6 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useTheme } from "next-themes"
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
+const CARBON_SETTINGS_STORAGE_KEY = "verdant-carbon-routing-settings-v1"
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1"
 const CHAT_MODELS = new Set<string>([
@@ -44,6 +46,16 @@ const SUPPORTED_OCR_MIME_TYPES = new Set([
   "image/jpeg",
   "image/webp",
 ])
+
+interface CarbonRoutingSettings {
+  routingSensitivity: number
+  historyCompression: number
+}
+
+const DEFAULT_CARBON_SETTINGS: CarbonRoutingSettings = {
+  routingSensitivity: 55,
+  historyCompression: 50,
+}
 
 interface ConversationResponse {
   conversationId: string
@@ -82,6 +94,15 @@ interface ChatRequestAttachment {
   kind: "file" | "url"
   contentBase64?: string
   documentUrl?: string
+}
+
+interface CarbonStatsSummary {
+  hasData: boolean
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  footprintKg: number
+  source: "provider-usage" | "estimated" | "heuristic"
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -144,11 +165,99 @@ function sanitizeImageModel(value?: string | null): string {
   return IMAGE_MODELS.has(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL
 }
 
+function clampSettingValue(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  if (value < 0) {
+    return 0
+  }
+  if (value > 100) {
+    return 100
+  }
+  return Math.round(value)
+}
+
+function sanitizeCarbonSettings(raw: unknown): CarbonRoutingSettings {
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_CARBON_SETTINGS
+  }
+  const record = raw as Record<string, unknown>
+  const routingSensitivity =
+    typeof record.routingSensitivity === "number"
+      ? clampSettingValue(record.routingSensitivity)
+      : DEFAULT_CARBON_SETTINGS.routingSensitivity
+  const historyCompression =
+    typeof record.historyCompression === "number"
+      ? clampSettingValue(record.historyCompression)
+      : DEFAULT_CARBON_SETTINGS.historyCompression
+  return {
+    routingSensitivity,
+    historyCompression,
+  }
+}
+
 function formatFootprint(kg: number): string {
   if (kg >= 0.001) {
     return `${kg.toFixed(3)} kg CO₂e`
   }
   return `${(kg * 1000).toFixed(2)} g CO₂e`
+}
+
+function asNonNegativeNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null
+  }
+  return value >= 0 ? value : null
+}
+
+function summarizeCarbonStats(messages: UIMessage[]): CarbonStatsSummary {
+  let promptTokens = 0
+  let completionTokens = 0
+  let totalTokens = 0
+  let footprintKg = 0
+  let source: "provider-usage" | "estimated" | "heuristic" = "heuristic"
+  let hasData = false
+
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      if (part.type !== "data-carbon-stats") {
+        continue
+      }
+
+      const data = (part as { data?: unknown }).data
+      if (!data || typeof data !== "object") {
+        continue
+      }
+      const record = data as Record<string, unknown>
+
+      const prompt = asNonNegativeNumber(record.promptTokens)
+      const completion = asNonNegativeNumber(record.completionTokens)
+      const total = asNonNegativeNumber(record.totalTokens)
+      const footprint = asNonNegativeNumber(record.footprintKg)
+
+      promptTokens += prompt ?? 0
+      completionTokens += completion ?? 0
+      totalTokens += total ?? (prompt ?? 0) + (completion ?? 0)
+      footprintKg += footprint ?? 0
+      hasData = true
+
+      if (record.source === "provider-usage") {
+        source = "provider-usage"
+      } else if (record.source === "estimated" && source !== "provider-usage") {
+        source = "estimated"
+      }
+    }
+  }
+
+  return {
+    hasData,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    footprintKg,
+    source,
+  }
 }
 
 function MenuIcon({ className }: { className?: string }) {
@@ -280,6 +389,24 @@ function LeafIcon({ className }: { className?: string }) {
   )
 }
 
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.6 1.6 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.6 1.6 0 0 0 15 19.4a1.6 1.6 0 0 0-1 .6 1.6 1.6 0 0 0-.33.98V21a2 2 0 1 1-4 0v-.02a1.6 1.6 0 0 0-.33-.98 1.6 1.6 0 0 0-1-.6 1.6 1.6 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-.6-1 1.6 1.6 0 0 0-.98-.33H3a2 2 0 1 1 0-4h.02a1.6 1.6 0 0 0 .98-.33 1.6 1.6 0 0 0 .6-1 1.6 1.6 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 9 4.6a1.6 1.6 0 0 0 1-.6 1.6 1.6 0 0 0 .33-.98V3a2 2 0 1 1 4 0v.02a1.6 1.6 0 0 0 .33.98 1.6 1.6 0 0 0 1 .6 1.6 1.6 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 19.4 9c.13.38.33.73.6 1 .28.28.62.48 1 .6.32.11.65.17.98.17H21a2 2 0 1 1 0 4h-.02c-.33 0-.66.06-.98.17-.38.12-.72.32-1 .6-.27.27-.47.62-.6 1Z" />
+    </svg>
+  )
+}
+
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -297,6 +424,7 @@ export function ChatContainer() {
   const [model, setModel] = useState(DEFAULT_MODEL)
   const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
   const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
+  const [carbonSettings, setCarbonSettings] = useState<CarbonRoutingSettings>(DEFAULT_CARBON_SETTINGS)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [themeMounted, setThemeMounted] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -339,6 +467,7 @@ export function ChatContainer() {
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
     [conversations, conversationId],
   )
+  const carbonStats = useMemo(() => summarizeCarbonStats(messages), [messages])
 
   const charCount = messages.reduce((total, message) => {
     const chars =
@@ -349,8 +478,14 @@ export function ChatContainer() {
 
     return total + chars
   }, 0)
-  const tokenEstimate = charCount / CHARS_PER_TOKEN
-  const footprintKg = tokenEstimate * KG_PER_TOKEN
+  const heuristicTokenEstimate = charCount / CHARS_PER_TOKEN
+  const hasTrackedTokens = carbonStats.hasData && carbonStats.totalTokens > 0
+  const tokenEstimate = hasTrackedTokens ? carbonStats.totalTokens : heuristicTokenEstimate
+  const heuristicFootprintKg = heuristicTokenEstimate * KG_PER_TOKEN
+  const footprintKg =
+    carbonStats.hasData && carbonStats.footprintKg > 0
+      ? carbonStats.footprintKg
+      : heuristicFootprintKg
 
   const resetAttachmentUiState = useCallback(() => {
     setPendingAttachments([])
@@ -366,6 +501,23 @@ export function ChatContainer() {
 
   useEffect(() => {
     setThemeMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+    try {
+      const raw = window.localStorage.getItem(CARBON_SETTINGS_STORAGE_KEY)
+      if (!raw) {
+        setCarbonSettings(DEFAULT_CARBON_SETTINGS)
+        return
+      }
+      const parsed = JSON.parse(raw) as unknown
+      setCarbonSettings(sanitizeCarbonSettings(parsed))
+    } catch {
+      setCarbonSettings(DEFAULT_CARBON_SETTINGS)
+    }
   }, [])
 
   const refreshConversations = useCallback(async () => {
@@ -505,6 +657,7 @@ export function ChatContainer() {
           imageGenerationEnabled,
           imageModel,
           attachments: requestAttachments,
+          carbonSettings,
         },
       },
     )
@@ -524,6 +677,7 @@ export function ChatContainer() {
           deepSearchEnabled,
           imageGenerationEnabled,
           imageModel,
+          carbonSettings,
         },
       },
     )
@@ -844,6 +998,21 @@ export function ChatContainer() {
             })
           )}
         </div>
+
+        <div className="border-t border-border/70 p-2">
+          <Link
+            href="/settings"
+            className="group flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm text-foreground transition-colors hover:border-emerald-600 hover:bg-emerald-500/10 dark:hover:border-emerald-400 dark:hover:bg-emerald-400/15"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-muted/40 text-muted-foreground transition-colors group-hover:border-emerald-600 group-hover:text-emerald-700 dark:group-hover:border-emerald-400 dark:group-hover:text-emerald-300">
+              <SettingsIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-medium">Routing settings</p>
+              <p className="truncate text-xs text-muted-foreground">Carbon sensitivity and compression</p>
+            </div>
+          </Link>
+        </div>
       </aside>
 
       <div
@@ -1062,10 +1231,19 @@ export function ChatContainer() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{formatFootprint(footprintKg)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
-              <p className="text-xs text-muted-foreground">Estimated tokens</p>
+              <p className="text-xs text-muted-foreground">
+                {hasTrackedTokens ? "Tracked tokens" : "Estimated tokens"}
+              </p>
               <p className="mt-1 text-2xl font-semibold text-foreground">
                 {Math.max(0, Math.round(tokenEstimate)).toLocaleString()}
               </p>
+              {hasTrackedTokens ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Prompt {Math.max(0, Math.round(carbonStats.promptTokens)).toLocaleString()} • Completion{" "}
+                  {Math.max(0, Math.round(carbonStats.completionTokens)).toLocaleString()} (
+                  {carbonStats.source === "provider-usage" ? "provider usage" : "estimated"})
+                </p>
+              ) : null}
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Characters processed</p>
