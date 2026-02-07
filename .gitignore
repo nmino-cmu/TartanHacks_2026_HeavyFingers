@@ -12,3 +12,5 @@ package-lock.json
 .env 2.local
 repomix-output.xml
 repomix-output-*.xml
+demo.txt
+

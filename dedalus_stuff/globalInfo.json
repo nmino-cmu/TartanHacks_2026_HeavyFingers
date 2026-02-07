@@ -5,7 +5,11 @@
     "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation14.json"
   },
   "convoName": "Conversation 14",
+<<<<<<< HEAD
   "convoIndex": 14,
+=======
+  "convoIndex": 25,
+>>>>>>> mcericola
   "carbonFootprint": 0,
   "permanent memories": []
 }
