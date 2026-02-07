@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { signIn, signOut, useSession } from "next-auth/react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +12,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { AccountDialog } from "@/components/account-dialog"
 
 function LeafIcon({ className }: { className?: string }) {
   return (
@@ -129,108 +128,93 @@ function HistoryIcon({ className }: { className?: string }) {
 }
 
 export function Header() {
-  const [accountOpen, setAccountOpen] = useState(false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [userName, setUserName] = useState("")
-
-  const handleLogin = (name: string) => {
-    setIsLoggedIn(true)
-    setUserName(name)
-    setAccountOpen(false)
-  }
-
-  const handleLogout = () => {
-    setIsLoggedIn(false)
-    setUserName("")
-  }
+  const { data: session, status } = useSession()
+  const isLoggedIn = status === "authenticated"
+  const userName = session?.user?.name || session?.user?.email || "Google User"
+  const userInitial = userName.charAt(0).toUpperCase()
 
   return (
-    <>
-      <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <LeafIcon className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-foreground">
-              Daedalus
-            </span>
-            <span className="hidden rounded-full border border-seafoam/40 bg-mint/60 px-2 py-0.5 text-xs font-medium text-pine sm:inline-block">
-              AI
-            </span>
+    <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <LeafIcon className="h-4 w-4 text-primary-foreground" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <Link href="/wallet" className="hidden sm:inline">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
-              >
-                <WalletIcon className="h-4 w-4" />
-                Wallet
-              </Button>
-            </Link>
-            {isLoggedIn ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-                    <Avatar className="h-9 w-9 border-2 border-seafoam">
-                      <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
-                        {userName.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56 bg-card text-card-foreground" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col gap-1">
-                      <p className="text-sm font-medium leading-none">{userName}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
-                        Daedalus User
-                      </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer">
-                    <UserIcon className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
-                    <HistoryIcon className="mr-2 h-4 w-4" />
-                    Chat History
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
-                    <SettingsIcon className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer text-destructive" onClick={handleLogout}>
-                    <LogOutIcon className="mr-2 h-4 w-4" />
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
-                onClick={() => setAccountOpen(true)}
-              >
-                <UserIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">Sign In</span>
-              </Button>
-            )}
-          </div>
+          <span className="text-lg font-semibold tracking-tight text-foreground">
+            Daedalus
+          </span>
+          <span className="hidden rounded-full border border-seafoam/40 bg-mint/60 px-2 py-0.5 text-xs font-medium text-pine sm:inline-block">
+            AI
+          </span>
         </div>
-      </header>
 
-      <AccountDialog
-        open={accountOpen}
-        onOpenChange={setAccountOpen}
-        onLogin={handleLogin}
-      />
-    </>
+        <div className="flex items-center gap-2">
+          <Link href="/wallet" className="hidden sm:inline">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
+            >
+              <WalletIcon className="h-4 w-4" />
+              Wallet
+            </Button>
+          </Link>
+          {isLoggedIn ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                  <Avatar className="h-9 w-9 border-2 border-seafoam">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
+                      {userInitial}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56 bg-card text-card-foreground" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-medium leading-none">{userName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      Signed in with Google
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="cursor-pointer">
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
+                  <HistoryIcon className="mr-2 h-4 w-4" />
+                  Chat History
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
+                  <SettingsIcon className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive"
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                >
+                  <LogOutIcon className="mr-2 h-4 w-4" />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
+              onClick={() => signIn()}
+            >
+              <UserIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign In</span>
+            </Button>
+          )}
+        </div>
+      </div>
+    </header>
   )
 }
