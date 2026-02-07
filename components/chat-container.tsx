@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
@@ -17,6 +18,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 <<<<<<< HEAD
@@ -61,6 +64,43 @@ const ALLOWED_MODELS = new Set<string>([
 const CHARS_PER_TOKEN = 4
 const KG_PER_TOKEN = 0.0000005
 >>>>>>> add_library
+
+function extractMessageText(message: UIMessage): string {
+  const partsText =
+    message.parts
+      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join("") || ""
+
+  if (partsText) return partsText
+
+  const withContent = message as UIMessage & { content?: unknown }
+  const { content } = withContent
+
+  if (typeof content === "string") {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    const textBlocks = content
+      .map((item) => {
+        if (typeof item === "string") return item
+        if (item && typeof item === "object" && "type" in item && "text" in (item as { type: unknown; text?: unknown })) {
+          const maybeText = (item as { text?: unknown }).text
+          if (typeof maybeText === "string") return maybeText
+        }
+        return ""
+      })
+      .filter(Boolean)
+      .join("")
+
+    if (textBlocks) {
+      return textBlocks
+    }
+  }
+
+  return ""
+}
 
 interface ConversationResponse {
   conversationId: string
@@ -338,6 +378,7 @@ export function ChatContainer() {
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 <<<<<<< HEAD
+<<<<<<< HEAD
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
@@ -348,7 +389,16 @@ export function ChatContainer() {
   const isMobile = useIsMobile()
   const { theme, setTheme } = useTheme()
 =======
+=======
+  const [searchQuery, setSearchQuery] = useState("")
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchStatus, setSearchStatus] = useState<string | null>(null)
+  const [scrollTargetMessageId, setScrollTargetMessageId] = useState<string | null>(null)
+  const [searchHighlightTerms, setSearchHighlightTerms] = useState<string[]>([])
+  const [searchCursor, setSearchCursor] = useState<{ conversationId: string | null; messageId: string | null } | null>(null)
+>>>>>>> mcericola
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const conversationCache = useRef(new Map<string, ConversationResponse>())
   const isMobile = useIsMobile()
 >>>>>>> add_library
 
@@ -401,10 +451,129 @@ export function ChatContainer() {
 =======
 >>>>>>> add_library
 
+  const scrollToMessage = useCallback((targetMessageId: string): boolean => {
+    if (typeof window === "undefined") return false
+
+    const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
+    if (!el) return false
+
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    el.classList.add("ring-2", "ring-primary")
+    window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 1200)
+    return true
+  }, [])
+
+  const findNextMessageIdByQuery = useCallback(
+    (messageList: UIMessage[], query: string, afterMessageId?: string | null): string | null => {
+      const trimmed = query.trim().toLowerCase()
+      if (!trimmed) return null
+
+      let startIndex = 0
+      if (afterMessageId) {
+        const idx = messageList.findIndex((m) => m.id === afterMessageId)
+        if (idx !== -1) {
+          startIndex = idx + 1
+        }
+      }
+
+      for (let i = startIndex; i < messageList.length; i += 1) {
+        const text = extractMessageText(messageList[i]).toLowerCase()
+        if (text.includes(trimmed)) {
+          return messageList[i].id
+        }
+      }
+      return null
+    },
+    [],
+  )
+
+  const getConversationData = useCallback(
+    async (targetConversationId: string): Promise<ConversationResponse> => {
+      if (targetConversationId === conversationId && conversationId) {
+        return {
+          conversationId,
+          messages,
+          model,
+        }
+      }
+
+      const cached = conversationCache.current.get(targetConversationId)
+      if (cached) {
+        return cached
+      }
+
+      const response = await fetch(
+        `/api/conversation?conversationId=${encodeURIComponent(targetConversationId)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(`Conversation fetch failed with status ${response.status}`)
+      }
+
+      const data: ConversationResponse = await response.json()
+      conversationCache.current.set(targetConversationId, data)
+      return data
+    },
+    [conversationId, messages, model],
+  )
+
+  const findNextOccurrence = useCallback(
+    async (query: string, startAfter?: { conversationId: string | null; messageId: string | null } | null) => {
+      const trimmed = query.trim()
+      if (!trimmed) return null
+
+      const orderedConversationIds: string[] = []
+      if (conversationId) {
+        orderedConversationIds.push(conversationId)
+      }
+      for (const c of conversations) {
+        if (c.conversationId !== conversationId) {
+          orderedConversationIds.push(c.conversationId)
+        }
+      }
+
+      const hasStart = Boolean(startAfter?.conversationId)
+      let started = !hasStart
+
+      for (const cid of orderedConversationIds) {
+        const data = await getConversationData(cid)
+        const afterId = !started && startAfter?.conversationId === cid ? startAfter?.messageId : null
+        const matchId = findNextMessageIdByQuery(data.messages, trimmed, afterId || undefined)
+        if (matchId) {
+          return { conversation: data, messageId: matchId }
+        }
+        if (!started && startAfter?.conversationId === cid) {
+          started = true
+        }
+      }
+
+      return null
+    },
+    [conversationId, conversations, findNextMessageIdByQuery, getConversationData],
+  )
+
   useEffect(() => {
+    if (scrollTargetMessageId) return
     const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
     messagesEndRef.current?.scrollIntoView({ behavior })
-  }, [messages, status])
+  }, [messages, status, scrollTargetMessageId])
+
+  useEffect(() => {
+    if (!scrollTargetMessageId) return
+
+    const timer = window.setTimeout(() => {
+      const didScroll = scrollToMessage(scrollTargetMessageId)
+      if (didScroll) {
+        setScrollTargetMessageId(null)
+      }
+    }, 50)
+
+    return () => window.clearTimeout(timer)
+  }, [scrollTargetMessageId, scrollToMessage, messages])
 
   useEffect(() => {
 <<<<<<< HEAD
@@ -416,6 +585,12 @@ export function ChatContainer() {
     }
   }, [isMobile])
 >>>>>>> add_library
+
+  useEffect(() => {
+    setSearchCursor(null)
+    setSearchStatus(null)
+    setSearchHighlightTerms([])
+  }, [searchQuery])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -435,6 +610,27 @@ export function ChatContainer() {
     }
   }, [])
 
+  useEffect(() => {
+    if (conversationId) {
+      conversationCache.current.set(conversationId, {
+        conversationId,
+        messages,
+        model,
+      })
+    }
+  }, [conversationId, messages, model])
+
+  const applyConversationData = useCallback(
+    (data: ConversationResponse) => {
+      setConversationId(data.conversationId)
+      setModel(sanitizeModel(data.model))
+      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
+      setMessages(data.messages)
+      conversationCache.current.set(data.conversationId, data)
+    },
+    [setMessages],
+  )
+
   const loadConversation = useCallback(
     async (targetConversationId?: string | null): Promise<ConversationResponse> => {
       const query = targetConversationId
@@ -451,6 +647,7 @@ export function ChatContainer() {
       }
 
       const data: ConversationResponse = await response.json()
+<<<<<<< HEAD
       setConversationId(data.conversationId)
       setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
@@ -492,9 +689,12 @@ export function ChatContainer() {
     }
   }, [messages])
 =======
+=======
+      applyConversationData(data)
+>>>>>>> mcericola
       return data
     },
-    [setMessages],
+    [applyConversationData],
   )
 >>>>>>> add_library
 
@@ -596,6 +796,76 @@ export function ChatContainer() {
       },
     )
   }
+
+  const handleSearchNext = useCallback(async () => {
+    const query = searchQuery.trim()
+    if (!query || isSearching || isLoading) return
+
+    setIsSearching(true)
+    setSearchStatus("Searching...")
+    setSearchHighlightTerms([query])
+
+    try {
+      const next = await findNextOccurrence(query, searchCursor)
+      if (next) {
+        const isNewConversation = next.conversation.conversationId !== conversationId
+        if (isNewConversation) {
+          applyConversationData(next.conversation)
+          if (isMobile) {
+            setIsSidebarOpen(false)
+          }
+        }
+        setScrollTargetMessageId(next.messageId)
+        setSearchCursor({ conversationId: next.conversation.conversationId, messageId: next.messageId })
+        const label =
+          conversations.find((c) => c.conversationId === next.conversation.conversationId)?.title ||
+          next.conversation.conversationId
+        setSearchStatus(`Found in ${label}.`)
+        return
+      }
+
+      if (searchCursor) {
+        const wrapped = await findNextOccurrence(query, null)
+        if (wrapped) {
+          const isNewConversation = wrapped.conversation.conversationId !== conversationId
+          if (isNewConversation) {
+            applyConversationData(wrapped.conversation)
+            if (isMobile) {
+              setIsSidebarOpen(false)
+            }
+          }
+          setScrollTargetMessageId(wrapped.messageId)
+          setSearchCursor({
+            conversationId: wrapped.conversation.conversationId,
+            messageId: wrapped.messageId,
+          })
+          const label =
+            conversations.find((c) => c.conversationId === wrapped.conversation.conversationId)?.title ||
+            wrapped.conversation.conversationId
+          setSearchStatus(`Wrapped to first match in ${label}.`)
+          return
+        }
+      }
+
+      setSearchStatus("No matches found.")
+    } catch (error) {
+      console.error("Search failed.", error)
+      setSearchStatus("Search failed. Please try again.")
+    } finally {
+      setIsSearching(false)
+    }
+  }, [
+    applyConversationData,
+    conversations,
+    conversationId,
+    findNextOccurrence,
+    isLoading,
+    isMobile,
+    isSearching,
+    searchQuery,
+    searchCursor,
+    setIsSidebarOpen,
+  ])
 
   const handleSelectConversation = async (targetConversationId: string) => {
     if (!targetConversationId || targetConversationId === conversationId || isLoading) {
@@ -1277,7 +1547,7 @@ export function ChatContainer() {
           isSidebarOpen ? "md:ml-72" : "md:ml-0",
         )}
       >
-        <div className="flex items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
           <button
             type="button"
             onClick={() => setIsSidebarOpen((prev) => !prev)}
@@ -1292,6 +1562,38 @@ export function ChatContainer() {
         </div>
 >>>>>>> add_library
 
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-card/60 px-3 py-2">
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handleSearchNext()
+            }}
+          >
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search messages"
+              className="h-9 w-60"
+              disabled={isLoading || isSearching}
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              className="h-9"
+              disabled={isLoading || isSearching}
+            >
+              {isSearching ? "Searching..." : "Find next"}
+            </Button>
+          </form>
+        </div>
+
+        {searchStatus ? (
+          <div className="border-b border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground">
+            {searchStatus}
+          </div>
+        ) : null}
+
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {messages.length === 0 ? (
             <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
@@ -1304,6 +1606,7 @@ export function ChatContainer() {
 <<<<<<< HEAD
                   attachments={attachmentsByMessageId[message.id] ?? []}
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
+                  highlightTerms={searchHighlightTerms}
                 />
               ))}
               {activeToolStatus ? (
@@ -1476,6 +1779,11 @@ export function ChatContainer() {
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 text-sm text-foreground">
             Tip: Shorter prompts and specific questions usually reduce token use and footprint.
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button asChild variant="outline" className="border-border/70">
+              <Link href="/carbon-calculation">Carbon emission calculation</Link>
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

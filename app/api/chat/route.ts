@@ -37,7 +37,30 @@ interface ConversationLockQueue {
   tail: Promise<void>
 }
 
+type RoutingTier = "light" | "heavy" | "tooling"
+
+interface CarbonRoutingSettings {
+  routingSensitivity: number
+  historyCompression: number
+}
+
+interface RoutingDecision {
+  tier: RoutingTier
+  model: string
+  heavyModel: string
+  maxTokens: number
+  historyWindowMessages: number
+  historySummaryMaxChars: number
+  availableModels: string[]
+}
+
+interface CachedToolContext {
+  value: string
+  expiresAt: number
+}
+
 const conversationLockQueues = new Map<string, ConversationLockQueue>()
+const toolContextCache = new Map<string, CachedToolContext>()
 
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 const RELIABLE_FALLBACK_MODEL = "openai/gpt-5-mini"
@@ -49,6 +72,13 @@ const WEB_SEARCH_MCP_SERVER = "akakak/parallel-search-mcp"
 const DEEP_SEARCH_MCP_SERVER = "tsion/sonar"
 const WEB_SEARCH_MODEL = process.env.CHAT_WEB_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
 const DEEP_SEARCH_MODEL = process.env.CHAT_DEEP_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
+const LIGHT_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_LIGHT?.trim() || "openai/gpt-5-nano"
+const TOOLING_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_TOOLING?.trim() || "openai/gpt-5-mini"
+const HEAVY_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_HEAVY?.trim() || DEFAULT_MODEL
+const LIGHT_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_LIGHT ?? 900)
+const TOOLING_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_TOOLING ?? 1400)
+const HEAVY_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_HEAVY ?? 2600)
+const TOOL_CONTEXT_CACHE_TTL_MS = Number(process.env.CHAT_TOOL_CACHE_TTL_MS ?? 3 * 60 * 1000)
 const MAX_OCR_ATTACHMENTS = 5
 const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const MAX_BASE64_CHARS_PER_ATTACHMENT = Math.ceil((MAX_OCR_ATTACHMENT_BYTES * 4) / 3) + 512
@@ -82,6 +112,11 @@ const ALLOWED_MODELS = new Set<string>([...CHAT_MODELS, ...IMAGE_MODELS])
 
 const STREAM_DELTA_DELAY_MS = 10
 const STREAM_TOKENS_PER_FLUSH = 2
+
+const DEFAULT_CARBON_SETTINGS: CarbonRoutingSettings = {
+  routingSensitivity: 55,
+  historyCompression: 50,
+}
 =======
 interface ConversationLockQueue {
   tail: Promise<void>
@@ -113,7 +148,10 @@ const STREAM_TOKENS_PER_FLUSH = Math.max(
     Number.parseInt(process.env.CHAT_STREAM_TOKENS_PER_FLUSH?.trim() || "2", 10) || 2,
   ),
 )
+<<<<<<< HEAD
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
@@ -1153,6 +1191,7 @@ export async function POST(req: Request) {
     }
 
     const requestedModel = sanitizeRequestedModel(requestBody.model)
+<<<<<<< HEAD
     const selectedModel =
       requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
 <<<<<<< HEAD
@@ -1160,6 +1199,9 @@ export async function POST(req: Request) {
       requestedImageModel || (isImageModel(selectedModel) ? selectedModel : DEFAULT_IMAGE_MODEL)
 =======
 >>>>>>> add_library
+=======
+    const selectedModel = requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
+>>>>>>> mcericola
 
     releaseConversationLock = await acquireConversationLock(sanitizedRequestedConversationId)
 
@@ -1312,16 +1354,21 @@ export async function POST(req: Request) {
         const drainTokens = async () => {
           while (!streamClosed || pendingTokens.length > 0) {
 <<<<<<< HEAD
+<<<<<<< HEAD
             if (pendingTokens.length === 0) {
 =======
             if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
 >>>>>>> add_library
+=======
+            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
+>>>>>>> mcericola
               await new Promise<void>((resolve) => {
                 wakeDrain = resolve
               })
               continue
             }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
             if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
               await waitForDrainSignal(
@@ -1334,6 +1381,9 @@ export async function POST(req: Request) {
 =======
             if (pendingTokens.length === 0) {
 >>>>>>> add_library
+=======
+            if (pendingTokens.length === 0) {
+>>>>>>> mcericola
               continue
             }
 

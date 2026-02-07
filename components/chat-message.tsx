@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react"
 >>>>>>> add_library
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 
 function BotIcon({ className }: { className?: string }) {
@@ -168,6 +169,7 @@ function toSpeakableText(value: string): string {
 interface ChatMessageProps {
   message: UIMessage
   isStreaming?: boolean
+<<<<<<< HEAD
   attachments?: Array<{
     id: string
     name: string
@@ -221,6 +223,67 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
 
 =======
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+=======
+  highlightTerms?: string[]
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function createRehypeHighlight(terms: string[]) {
+  const normalized = terms.map((t) => t.trim()).filter(Boolean)
+  if (normalized.length === 0) return null
+
+  const regex = new RegExp(`(${normalized.map(escapeRegex).join("|")})`, "gi")
+
+  return function rehypeHighlight() {
+    return function transformer(tree: any) {
+      const walk = (node: any): any => {
+        if (!node) return node
+
+        if (node.type === "text" && typeof node.value === "string") {
+          const parts = node.value.split(regex)
+          if (parts.length === 1) return node
+
+          const newNodes = parts.map((part: string) => {
+            const isMatch = regex.test(part)
+            regex.lastIndex = 0
+            if (isMatch) {
+              return {
+                type: "element",
+                tagName: "mark",
+                properties: {
+                  style:
+                    "background-color: rgba(255, 215, 0, 0.1); border-radius: 2px; padding: 0 2px;",
+                },
+                children: [{ type: "text", value: part }],
+              }
+            }
+            return { type: "text", value: part }
+          })
+
+          return newNodes
+        }
+
+        if (Array.isArray(node.children)) {
+          node.children = node.children.flatMap((child: any) => walk(child))
+        }
+
+        return node
+      }
+
+      if (Array.isArray(tree.children)) {
+        tree.children = tree.children.flatMap((child: any) => walk(child))
+      }
+
+      return tree
+    }
+  }
+}
+
+export function ChatMessage({ message, isStreaming, highlightTerms }: ChatMessageProps) {
+>>>>>>> mcericola
   const isUser = message.role === "user"
   const isStreamingAssistant = Boolean(isStreaming && !isUser)
 
@@ -298,8 +361,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
 =======
 >>>>>>> add_library
 
+  const rehypePlugins = useMemo(() => {
+    const plugin = createRehypeHighlight(highlightTerms || [])
+    return plugin ? [plugin] : []
+  }, [highlightTerms])
+
   return (
     <div
+      data-message-id={message.id}
       className={cn(
         "flex gap-3 px-4 py-4",
         isUser ? "justify-end" : "justify-start"
@@ -412,7 +481,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
           {isStreamingAssistant ? (
             <div className="whitespace-pre-wrap">{text || ""}</div>
           ) : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins}>
               {text || ""}
             </ReactMarkdown>
           )}

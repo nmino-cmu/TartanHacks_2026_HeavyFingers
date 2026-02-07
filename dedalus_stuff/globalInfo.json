@@ -2,6 +2,7 @@
   "activeFileDetails": {
     "existsActive": true,
 <<<<<<< HEAD
+<<<<<<< HEAD
     "activeChatIndex": 13,
     "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
   },
@@ -12,6 +13,12 @@
   },
   "convoName": "Conversation 2",
 >>>>>>> add_library
+=======
+    "activeChatIndex": 13,
+    "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
+  },
+  "convoName": "Demo Convo",
+>>>>>>> mcericola
   "convoIndex": 25,
   "carbonFootprint": 0,
   "permanent memories": []
