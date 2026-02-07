@@ -1,0 +1,33 @@
+{
+  "account_data": {
+    "Account": "rnAAQsZNtJqNGihxzHg3jipsEsV2Gg3vby",
+    "Balance": "100000000",
+    "Flags": 0,
+    "LedgerEntryType": "AccountRoot",
+    "OwnerCount": 0,
+    "PreviousTxnID": "8363A465A15F3E56BF02A0A3FC4F921E702EE04E47C047A5B1C5007877A06275",
+    "PreviousTxnLgrSeq": 14685307,
+    "Sequence": 14685307,
+    "index": "65C97F2BE9562D8ABC671C088A99B2DDB9924090C110E38F6C4E399F2FD33BBD"
+  },
+  "account_flags": {
+    "allowTrustLineClawback": false,
+    "defaultRipple": false,
+    "depositAuth": false,
+    "disableMasterKey": false,
+    "disallowIncomingCheck": false,
+    "disallowIncomingNFTokenOffer": false,
+    "disallowIncomingPayChan": false,
+    "disallowIncomingTrustline": false,
+    "disallowIncomingXRP": false,
+    "globalFreeze": false,
+    "noFreeze": false,
+    "passwordSpent": false,
+    "requireAuthorization": false,
+    "requireDestinationTag": false
+  },
+  "ledger_hash": "DA9D7665D011FB84A79C83133145478839B86DEA8BA48DD9D2A09912FBD4959B",
+  "ledger_index": 14685307,
+  "seed": "sEd75icVfnfBREysFuxx93ogrpiMe7c",
+  "validated": true
+}
