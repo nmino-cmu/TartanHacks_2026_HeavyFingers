@@ -86,16 +86,6 @@ export function ChatShell() {
     })
   }
 
-  // const updateActiveMessages = (messages: UIMessage[]) => {
-  //   setConversations(prev =>
-  //     prev.map(c => {
-  //       if (c.id !== activeId) return c
-  //       const nextTitle = c.title === "New chat" ? titleFromMessages(messages) : c.title
-  //       return { ...c, messages, title: nextTitle, updatedAt: Date.now() }
-  //     })
-  //   )
-  // }
-
   const updateActiveMessages = useCallback((messages: UIMessage[]) => {
   setConversations(prev =>
     prev.map(c => {
