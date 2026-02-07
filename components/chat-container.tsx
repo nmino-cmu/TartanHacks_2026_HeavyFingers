@@ -6,7 +6,6 @@ import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
 import { ChatInput } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
-<<<<<<< HEAD
 import {
   Dialog,
   DialogContent,
@@ -14,28 +13,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-// Rough footprint estimation constants
-// Assumes ~4 characters per token and ~0.5 milligrams CO2e per token
-const CHARS_PER_TOKEN = 4
-const KG_PER_TOKEN = 0.0000005
-
-function formatFootprint(kg: number) {
-  if (kg >= 0.001) {
-    return `${kg.toFixed(3)} kg CO₂e`
-  }
-  return `${(kg * 1000).toFixed(2)} g CO₂e`
-}
-=======
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
->>>>>>> global_storage_test
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
+const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
+const ALLOWED_MODELS = new Set<string>([
+  "anthropic/claude-opus-4-5",
+  "openai/gpt-4o-mini",
+  "google/gemini-1.5-pro",
+])
+
+const CHARS_PER_TOKEN = 4
+const KG_PER_TOKEN = 0.0000005
 
 interface ConversationResponse {
   conversationId: string
   messages: UIMessage[]
+  model?: string
 }
 
 interface ConversationSummary {
@@ -47,6 +42,22 @@ interface ConversationSummary {
 
 interface ConversationsResponse {
   conversations: ConversationSummary[]
+}
+
+function sanitizeModel(value?: string | null): string {
+  if (!value) {
+    return DEFAULT_MODEL
+  }
+
+  const trimmed = value.trim()
+  return ALLOWED_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
+}
+
+function formatFootprint(kg: number): string {
+  if (kg >= 0.001) {
+    return `${kg.toFixed(3)} kg CO₂e`
+  }
+  return `${(kg * 1000).toFixed(2)} g CO₂e`
 }
 
 function MenuIcon({ className }: { className?: string }) {
@@ -174,11 +185,8 @@ function formatConversationDate(isoValue: string): string {
 
 export function ChatContainer() {
   const [input, setInput] = useState("")
-<<<<<<< HEAD
-  const [model, setModel] = useState("openai/gpt-4o-mini")
-
+  const [model, setModel] = useState(DEFAULT_MODEL)
   const [dashboardOpen, setDashboardOpen] = useState(false)
-=======
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isHydratingConversation, setIsHydratingConversation] = useState(true)
@@ -186,13 +194,9 @@ export function ChatContainer() {
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
->>>>>>> global_storage_test
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
 
-<<<<<<< HEAD
-  const { messages, sendMessage, status } = useChat({transport, })
-=======
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -204,7 +208,6 @@ export function ChatContainer() {
   const { messages, sendMessage, setMessages, status, error, clearError } = useChat({
     transport,
   })
->>>>>>> global_storage_test
 
   const isLoading =
     isHydratingConversation ||
@@ -217,12 +220,12 @@ export function ChatContainer() {
     [conversations, conversationId],
   )
 
-  // Estimate carbon footprint based on total characters exchanged
   const charCount = messages.reduce((total, message) => {
-    const chars = message.parts
-      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text.length)
-      .reduce((a, b) => a + b, 0) ?? 0
+    const chars =
+      message.parts
+        ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text.length)
+        .reduce((a, b) => a + b, 0) ?? 0
 
     return total + chars
   }, 0)
@@ -274,6 +277,7 @@ export function ChatContainer() {
 
       const data: ConversationResponse = await response.json()
       setConversationId(data.conversationId)
+      setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
       return data
@@ -286,9 +290,7 @@ export function ChatContainer() {
 
     const hydrateConversation = async () => {
       try {
-        const savedConversationId = window.localStorage.getItem(
-          CONVERSATION_STORAGE_KEY,
-        )
+        const savedConversationId = window.localStorage.getItem(CONVERSATION_STORAGE_KEY)
         const data = await loadConversation(savedConversationId)
         if (!isMounted) return
 
@@ -319,70 +321,22 @@ export function ChatContainer() {
   }, [status, refreshConversations])
 
   const handleSubmit = () => {
-<<<<<<< HEAD
-    if (!input.trim() || isLoading) return
-    sendMessage(
-      { text: input },
-      { body: {model} }
-=======
     if (!input.trim() || isLoading || !conversationId) return
     sendMessage(
       { text: input },
       {
-        body: { conversationId },
+        body: { conversationId, model },
       },
->>>>>>> global_storage_test
     )
     setInput("")
   }
 
   const handleSuggestionClick = (prompt: string) => {
-<<<<<<< HEAD
-    sendMessage(
-      { text: prompt },
-      { body: {model} }
-    )
-  }
-
-  return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setDashboardOpen(true)}
-        className="fixed right-3 top-3 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
-        aria-label="Open carbon footprint dashboard"
-      >
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span aria-hidden>🌿</span>
-        </div>
-        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
-          Footprint: {formatFootprint(footprintKg)}
-        </span>
-      </button>
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {messages.length === 0 ? (
-          <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
-        ) : (
-          <div className="mx-auto max-w-3xl py-6">
-            {messages.map((message, index) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                isStreaming={
-                  isLoading &&
-                  index === messages.length - 1 &&
-                  message.role === "assistant"
-                }
-              />
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-=======
     if (isLoading || !conversationId) return
     sendMessage(
       { text: prompt },
       {
-        body: { conversationId },
+        body: { conversationId, model },
       },
     )
   }
@@ -425,6 +379,7 @@ export function ChatContainer() {
 
       const data: ConversationResponse = await response.json()
       setConversationId(data.conversationId)
+      setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
       setInput("")
@@ -521,6 +476,7 @@ export function ChatContainer() {
 
       if (deletedActiveConversation) {
         setConversationId(data.conversationId)
+        setModel(sanitizeModel(data.model))
         window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
         setMessages(data.messages)
       }
@@ -541,6 +497,20 @@ export function ChatContainer() {
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setDashboardOpen(true)}
+        className="fixed right-3 top-16 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
+        aria-label="Open carbon footprint dashboard"
+      >
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span aria-hidden>🌿</span>
+        </div>
+        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+          Footprint: {formatFootprint(footprintKg)}
+        </span>
+      </button>
+
       {isMobile && isSidebarOpen ? (
         <button
           type="button"
@@ -554,7 +524,6 @@ export function ChatContainer() {
         className={cn(
           "absolute inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-border/70 bg-card/95 backdrop-blur-md transition-transform duration-300",
           isSidebarOpen ? "translate-x-0" : "-translate-x-full",
->>>>>>> global_storage_test
         )}
       >
         <div className="flex items-center justify-between border-b border-border/70 px-3 py-3">
@@ -572,9 +541,7 @@ export function ChatContainer() {
 
         <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
           {conversations.length === 0 ? (
-            <p className="px-2 py-3 text-xs text-muted-foreground">
-              No conversations yet.
-            </p>
+            <p className="px-2 py-3 text-xs text-muted-foreground">No conversations yet.</p>
           ) : (
             conversations.map((conversation) => {
               const isActive = conversation.conversationId === conversationId
@@ -703,11 +670,7 @@ export function ChatContainer() {
                 <ChatMessage
                   key={message.id}
                   message={message}
-                  isStreaming={
-                    isLoading &&
-                    index === messages.length - 1 &&
-                    message.role === "assistant"
-                  }
+                  isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -735,17 +698,10 @@ export function ChatContainer() {
           onInputChange={setInput}
           onSubmit={handleSubmit}
           isLoading={isLoading}
+          model={model}
+          onModelChange={(value) => setModel(sanitizeModel(value))}
         />
       </div>
-<<<<<<< HEAD
-      <ChatInput
-        input={input}
-        onInputChange={setInput}
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-        model={model}
-        onModelChange={setModel}
-      />
 
       <Dialog open={dashboardOpen} onOpenChange={setDashboardOpen}>
         <DialogContent className="max-w-lg bg-card text-card-foreground">
@@ -758,28 +714,28 @@ export function ChatContainer() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Session footprint</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{formatFootprint(footprintKg)}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{formatFootprint(footprintKg)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Estimated tokens</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{Math.max(0, Math.round(tokenEstimate)).toLocaleString()}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">
+                {Math.max(0, Math.round(tokenEstimate)).toLocaleString()}
+              </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Characters processed</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{charCount.toLocaleString()}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{charCount.toLocaleString()}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Messages exchanged</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{messages.length}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{messages.length}</p>
             </div>
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 text-sm text-foreground">
-            🌱 Tip: Shorter prompts and specific questions usually reduce token use and footprint.
+            Tip: Shorter prompts and specific questions usually reduce token use and footprint.
           </div>
         </DialogContent>
       </Dialog>
-=======
->>>>>>> global_storage_test
     </div>
   )
 }

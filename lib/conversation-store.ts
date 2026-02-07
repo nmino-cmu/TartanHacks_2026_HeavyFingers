@@ -408,6 +408,10 @@ async function getActiveConversationIdFromGlobal(): Promise<string | null> {
   return null
 }
 
+export async function getActiveConversationIdForUi(): Promise<string | null> {
+  return getActiveConversationIdFromGlobal()
+}
+
 async function updateGlobalActiveConversation(record: ConversationRecord): Promise<void> {
   const current = normalizeGlobalInfoPayload(await loadGlobalPayload())
   const conversationIndex = getConversationIndex(record.conversationId)
@@ -488,6 +492,7 @@ async function ensureExistingConversationRecord(
 export async function loadConversationForUi(conversationId?: string | null): Promise<{
   conversationId: string
   messages: UIMessage[]
+  model: string
 }> {
   const record = await ensureConversationRecord(conversationId)
   try {
@@ -499,22 +504,29 @@ export async function loadConversationForUi(conversationId?: string | null): Pro
   return {
     conversationId: record.conversationId,
     messages: record.bundle.messages.messages.map(toUIMessage),
+    model: record.bundle.model.name,
   }
 }
 
 export async function persistPromptSnapshot(
   conversationId: string | undefined,
   messages: UIMessage[],
-  options?: { allowCreate?: boolean },
+  options?: { allowCreate?: boolean; modelName?: string | null },
 ): Promise<string> {
   const allowCreate = options?.allowCreate ?? true
   const record = allowCreate
     ? await ensureConversationRecord(conversationId)
     : await ensureExistingConversationRecord(conversationId)
+  const modelName = typeof options?.modelName === "string" ? options.modelName.trim() : ""
 
   record.bundle.messages.messages = messages
     .map((message) => toStoredMessage(message))
     .filter((message): message is StoredMessage => message !== null)
+
+  if (modelName) {
+    record.bundle.model.kind = DEFAULT_MODEL_KIND
+    record.bundle.model.name = modelName
+  }
 
   record.bundle.conversation.updated_at = new Date().toISOString()
   await saveBundle(record.filePath, record.bundle)
@@ -574,7 +586,7 @@ export async function renameConversationForUi(
 export async function deleteConversationForUi(
   conversationId: string | undefined,
   preferredActiveConversationId?: string | null,
-): Promise<{ conversationId: string; messages: UIMessage[] }> {
+): Promise<{ conversationId: string; messages: UIMessage[]; model: string }> {
   const sanitizedConversationId = sanitizeConversationId(conversationId)
   if (!sanitizedConversationId) {
     throw new Error("Missing conversation id.")

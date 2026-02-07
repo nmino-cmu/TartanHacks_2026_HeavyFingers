@@ -3,51 +3,10 @@ import path from "node:path"
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai"
 import {
   appendAssistantCompletion,
+  getActiveConversationIdForUi,
   persistPromptSnapshot,
 } from "@/lib/conversation-store"
 
-<<<<<<< HEAD
-// import Dedalus from 'dedalus-labs';
-// import { DedalusRunner } from 'dedalus-labs';
-
-import { createOpenAI } from "@ai-sdk/openai";
-
-export const maxDuration = 60
-// const client = new Dedalus();
-// const runner = new DedalusRunner(client);
-
-const dedalus = createOpenAI({
-  apiKey: process.env.DEDALUS_API_KEY,       
-  baseURL: "https://api.dedaluslabs.ai/v1", 
-});
-
-const SYSTEM_PROMPT = 
-`You are an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.
-You have a warm, grounded personality inspired by nature and sustainability.
-You provide clear, well-structured responses with practical advice.
-You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.
-Always be concise yet thorough. Use markdown formatting when it helps clarity.`
-
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
-
-const ALLOWED_MODELS = new Set<string>([
-  "openai/gpt-4o-mini",
-  "anthropic/claude-opus-4-5",
-  "google/gemini-1.5-pro",
-]);
-
-export async function POST(req: Request) {
-  const { messages, model }: { messages: UIMessage[]; model?: string} = 
-  await req.json()
-
-  const chosenModel = model && ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
-
-  const result = streamText({
-    model: dedalus(chosenModel),
-    system: SYSTEM_PROMPT,
-    messages: await convertToModelMessages(messages),
-    abortSignal: req.signal,
-=======
 export const maxDuration = 600
 
 type StreamFinishReason = "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other"
@@ -66,6 +25,16 @@ interface ConversationLockQueue {
 
 const conversationLockQueues = new Map<string, ConversationLockQueue>()
 
+const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
+const RELIABLE_FALLBACK_MODEL = "openai/gpt-4o-mini"
+const ENABLE_MODEL_FAILOVER = process.env.CHAT_ENABLE_MODEL_FAILOVER?.trim() === "1"
+const ENABLE_RECOVERY_LOGS = process.env.CHAT_RECOVERY_LOGS?.trim() === "1"
+const ALLOWED_MODELS = new Set<string>([
+  "anthropic/claude-opus-4-5",
+  "openai/gpt-4o-mini",
+  "google/gemini-1.5-pro",
+])
+
 const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
@@ -78,6 +47,19 @@ function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
   const sanitized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "")
   return sanitized.length > 0 ? sanitized : null
+}
+
+function sanitizeRequestedModel(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  return ALLOWED_MODELS.has(trimmed) ? trimmed : null
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -147,9 +129,23 @@ function getErrorMessage(error: unknown): string {
 
 function toClientError(error: unknown): string {
   const message = getErrorMessage(error)
+  const normalized = message.toLowerCase()
   if (message.includes("DEDALUS_API_KEY")) {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
+
+  if (normalized.includes("dedalus request failed with status 500")) {
+    return "The selected model is temporarily unavailable on Dedalus right now. Switch models and try again."
+  }
+
+  if (normalized.includes("dedalus request failed with status 403")) {
+    return "Dedalus rejected the request (403). Verify API key permissions and allowed origins, then retry."
+  }
+
+  if (normalized.includes("cloudflare")) {
+    return "Dedalus request was blocked upstream (Cloudflare). Please retry in a moment."
+  }
+
   return message || "Chat request failed."
 }
 
@@ -160,7 +156,6 @@ async function acquireConversationLock(conversationId: string): Promise<() => vo
   let releaseGate!: () => void
   const gate = new Promise<void>((resolve) => {
     releaseGate = resolve
->>>>>>> global_storage_test
   })
 
   const nextTail = previousTail.then(
@@ -181,10 +176,7 @@ async function acquireConversationLock(conversationId: string): Promise<() => vo
     released = true
     releaseGate()
 
-    if (
-      conversationLockQueues.get(conversationId) === queue &&
-      queue.tail === nextTail
-    ) {
+    if (conversationLockQueues.get(conversationId) === queue && queue.tail === nextTail) {
       conversationLockQueues.delete(conversationId)
     }
   }
@@ -216,6 +208,8 @@ async function streamFromAskQuestionScript(
   conversationId: string,
   abortSignal: AbortSignal,
   onToken: (token: string) => void,
+  selectedModel: string,
+  useStreaming: boolean,
 ): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
   const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
@@ -238,12 +232,10 @@ async function streamFromAskQuestionScript(
     "--global-json-path",
     globalJsonPath,
     "--no-update-global-info",
-    "--stream",
+    useStreaming ? "--stream" : "--no-stream",
+    "--model",
+    selectedModel,
   ]
-  const modelOverride = process.env.DEDALUS_MODEL?.trim()
-  if (modelOverride) {
-    args.push("--model", modelOverride)
-  }
 
   return await new Promise((resolve, reject) => {
     const child = spawn("python3", args, {
@@ -275,7 +267,7 @@ async function streamFromAskQuestionScript(
       let event: AskQuestionEvent
       try {
         event = JSON.parse(trimmed) as AskQuestionEvent
-      } catch (error) {
+      } catch {
         return
       }
 
@@ -337,11 +329,7 @@ async function streamFromAskQuestionScript(
 
       if (code !== 0) {
         const stderrText = stderrBuffer.trim()
-        reject(
-          new Error(
-            stderrText || `askQuestion.py exited with code ${code ?? "unknown"}.`,
-          ),
-        )
+        reject(new Error(stderrText || `askQuestion.py exited with code ${code ?? "unknown"}.`))
         return
       }
 
@@ -353,6 +341,60 @@ async function streamFromAskQuestionScript(
       resolve({ assistantText, finishReason })
     })
   })
+}
+
+function shouldRetryWithoutScriptStreaming(error: unknown): boolean {
+  const normalized = getErrorMessage(error).toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return (
+    normalized.includes("empty assistant response") ||
+    normalized.includes("returned no completion choices")
+  )
+}
+
+function isRetryableDedalusServerError(error: unknown): boolean {
+  const normalized = getErrorMessage(error).toLowerCase()
+  if (!normalized) {
+    return false
+  }
+
+  return (
+    normalized.includes("dedalus request failed with status 500") ||
+    normalized.includes("failed to reach dedalus api")
+  )
+}
+
+function getModelFailoverChain(preferredModel: string): string[] {
+  if (!ENABLE_MODEL_FAILOVER) {
+    if (ALLOWED_MODELS.has(preferredModel)) {
+      return [preferredModel]
+    }
+    return [DEFAULT_MODEL]
+  }
+
+  const candidates = [preferredModel, RELIABLE_FALLBACK_MODEL, DEFAULT_MODEL]
+  const deduped: string[] = []
+
+  for (const candidate of candidates) {
+    if (!ALLOWED_MODELS.has(candidate)) {
+      continue
+    }
+    if (!deduped.includes(candidate)) {
+      deduped.push(candidate)
+    }
+  }
+
+  return deduped
+}
+
+function logRecovery(message: string, payload: Record<string, unknown>): void {
+  if (!ENABLE_RECOVERY_LOGS) {
+    return
+  }
+  console.warn(message, payload)
 }
 
 export async function POST(req: Request) {
@@ -371,16 +413,19 @@ export async function POST(req: Request) {
     const requestBody = (await req.json()) as {
       messages?: UIMessage[]
       conversationId?: unknown
+      model?: unknown
     }
     const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
     const requestedConversationIdFromBody =
-      typeof requestBody.conversationId === "string"
-        ? requestBody.conversationId
-        : undefined
+      typeof requestBody.conversationId === "string" ? requestBody.conversationId : undefined
     const requestedConversationId =
       requestedConversationIdFromBody ?? url.searchParams.get("conversationId")
 
-    const sanitizedRequestedConversationId = sanitizeConversationId(requestedConversationId)
+    let sanitizedRequestedConversationId = sanitizeConversationId(requestedConversationId)
+    if (!sanitizedRequestedConversationId) {
+      sanitizedRequestedConversationId = sanitizeConversationId(await getActiveConversationIdForUi())
+    }
+
     if (!sanitizedRequestedConversationId) {
       return Response.json(
         {
@@ -391,14 +436,17 @@ export async function POST(req: Request) {
       )
     }
 
-    releaseConversationLock = await acquireConversationLock(
-      sanitizedRequestedConversationId,
-    )
+    const requestedModel = sanitizeRequestedModel(requestBody.model)
+    const selectedModel =
+      requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
+
+    releaseConversationLock = await acquireConversationLock(sanitizedRequestedConversationId)
 
     let conversationId: string
     try {
       conversationId = await persistPromptSnapshot(sanitizedRequestedConversationId, messages, {
         allowCreate: false,
+        modelName: selectedModel,
       })
     } catch (error) {
       releaseConversationLock()
@@ -480,20 +528,95 @@ export async function POST(req: Request) {
         const drainPromise = drainTokens()
         let assistantText = ""
         let streamCompleted = false
+        let modelUsedForResponse = selectedModel
 
         writer.write({ type: "start", messageId })
         writer.write({ type: "start-step" })
         writer.write({ type: "text-start", id: textPartId })
         try {
-          const pythonResult = await streamFromAskQuestionScript(
-            latestUserMessage,
-            conversationId,
-            req.signal,
-            (token) => {
-              sawTokenEvent = true
-              enqueueToken(token)
-            },
-          )
+          let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
+          let lastModelError: unknown = null
+          const modelCandidates = getModelFailoverChain(selectedModel)
+
+          for (const candidateModel of modelCandidates) {
+            const maxAttempts = ENABLE_MODEL_FAILOVER ? 2 : 1
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              try {
+                try {
+                  pythonResult = await streamFromAskQuestionScript(
+                    latestUserMessage,
+                    conversationId,
+                    req.signal,
+                    (token) => {
+                      sawTokenEvent = true
+                      enqueueToken(token)
+                    },
+                    candidateModel,
+                    true,
+                  )
+                } catch (error) {
+                  if (!shouldRetryWithoutScriptStreaming(error)) {
+                    throw error
+                  }
+
+                  logRecovery("Retrying askQuestion.py without upstream token streaming.", {
+                    conversationId,
+                    selectedModel: candidateModel,
+                    reason: getErrorMessage(error),
+                  })
+
+                  pythonResult = await streamFromAskQuestionScript(
+                    latestUserMessage,
+                    conversationId,
+                    req.signal,
+                    (token) => {
+                      sawTokenEvent = true
+                      enqueueToken(token)
+                    },
+                    candidateModel,
+                    false,
+                  )
+                }
+
+                modelUsedForResponse = candidateModel
+                break
+              } catch (error) {
+                lastModelError = error
+                const retryable = isRetryableDedalusServerError(error)
+                const hasAttemptsLeft = attempt < maxAttempts
+
+                if (retryable && hasAttemptsLeft) {
+                  await waitFor(300 * attempt, req.signal)
+                  continue
+                }
+
+                break
+              }
+            }
+
+            if (pythonResult) {
+              break
+            }
+
+            if (
+              lastModelError &&
+              isRetryableDedalusServerError(lastModelError) &&
+              candidateModel !== modelCandidates.at(-1)
+            ) {
+              logRecovery("Falling back to another model after Dedalus upstream failure.", {
+                conversationId,
+                failedModel: candidateModel,
+                nextModel: modelCandidates[modelCandidates.indexOf(candidateModel) + 1],
+                reason: getErrorMessage(lastModelError),
+              })
+            }
+          }
+
+          if (!pythonResult) {
+            throw (lastModelError ?? new Error("Dedalus did not return a response."))
+          }
+
           finishReason = pythonResult.finishReason
           assistantText = pythonResult.assistantText
 
@@ -508,6 +631,12 @@ export async function POST(req: Request) {
 
           if (streamCompleted && assistantText.trim()) {
             try {
+              if (modelUsedForResponse !== selectedModel) {
+                await persistPromptSnapshot(conversationId, messages, {
+                  allowCreate: false,
+                  modelName: modelUsedForResponse,
+                })
+              }
               await appendAssistantCompletion(conversationId, assistantText)
             } catch (error) {
               console.error("Failed to append assistant completion to master copy.", error)
