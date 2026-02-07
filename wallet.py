@@ -10,7 +10,7 @@ import json
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(JSON_RPC_URL)
 
-JSON_WALLET = "wallet1.json"
+JSON_WALLET = "wallet.json"
 EVERY_DONATE_ADDRESS = "rLjd5uRaxpi84pcn9ikbiMWPGqYfLrh15w" 
 
 def createWallet(json_file):
