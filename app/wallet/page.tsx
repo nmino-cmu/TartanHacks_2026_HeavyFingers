@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -47,6 +47,8 @@ import {
 type WalletData = {
   address?: string
   seed?: string
+  encrypted?: boolean
+  seed_available?: boolean
   explorer_url?: string
   file?: string
   account_data?: {
@@ -82,7 +84,6 @@ export default function WalletPage() {
   const [wallet, setWallet] = useState<WalletData | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<"create" | "refresh" | "send" | "import" | "charity" | null>(null)
-  const [seedVisible, setSeedVisible] = useState(false)
   const [amount, setAmount] = useState("10")
   const [destination, setDestination] = useState(DEFAULT_DESTINATION)
   const [destinationMode, setDestinationMode] = useState<"test" | "real">("test")
@@ -93,6 +94,21 @@ export default function WalletPage() {
   const [selectedCharity, setSelectedCharity] = useState<"custom" | string>("custom")
   const [donorName, setDonorName] = useState("")
   const [donorEmail, setDonorEmail] = useState("")
+  const [transactions, setTransactions] = useState<{ hash?: string; type?: string; validated?: boolean; date?: string }[]>([])
+  const [txLoading, setTxLoading] = useState(false)
+
+  useEffect(() => {
+    if (!wallet?.address) return
+
+    // initial silent fetch when a wallet is present
+    loadTransactions(10, true)
+
+    const interval = setInterval(() => {
+      loadTransactions(10, true)
+    }, 10_000)
+
+    return () => clearInterval(interval)
+  }, [wallet?.address])
 
   const hasWallet = Boolean(wallet?.address)
 
@@ -116,11 +132,23 @@ export default function WalletPage() {
     const response = await request("GET", { refresh })
     if (response.status === "ok") {
       setWallet(response.data)
+      loadTransactions()
     } else {
       toast({ title: "Unable to load wallet", description: response.error, variant: "destructive" })
       setWallet(null)
     }
     setLoading(false)
+  }
+
+  async function loadTransactions(limit = 10, silent = false) {
+    if (!silent) setTxLoading(true)
+    const response = await request("POST", { action: "txs", limit })
+    if (response.status === "ok") {
+      setTransactions(response.data?.transactions ?? [])
+    } else if (!silent) {
+      toast({ title: "Could not load activity", description: response.error, variant: "destructive" })
+    }
+    if (!silent) setTxLoading(false)
   }
 
   async function handleCreate() {
@@ -146,6 +174,7 @@ export default function WalletPage() {
   async function handleRefresh() {
     setBusy("refresh")
     await loadWallet(true)
+    await loadTransactions()
     setBusy(null)
   }
 
@@ -220,7 +249,6 @@ export default function WalletPage() {
     const response = await request("POST", { action: "import", seed: trimmedSeed })
     if (response.status === "ok") {
       setWallet(response.data)
-      setSeedVisible(false)
       setImportSeed("")
       toast({ title: "Wallet imported", description: "Loaded balance from the XRPL testnet." })
     } else {
@@ -254,14 +282,14 @@ export default function WalletPage() {
                   <p className="text-sm uppercase tracking-[0.2em]">XRPL Testnet</p>
                   <h1 className="text-3xl font-semibold leading-tight">Wallet Control Center</h1>
                   <p className="text-sm text-white/80">
-                    Create, inspect, and send test checks using the local Python helper in <code className="rounded bg-white/15 px-1.5 py-0.5 text-xs">wallet/wallet.py</code>.
+                    Create, inspect, and send test checks with keys that stay local and protected throughout the flow.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-white/30 text-white backdrop-blur">Testnet only</Badge>
                 <Badge variant="secondary" className="bg-black/40 text-white">
-                  Seed stays local
+                  Keys stay on your machine
                 </Badge>
               </div>
             </div>
@@ -358,17 +386,6 @@ export default function WalletPage() {
                   <p className="font-mono text-sm break-all text-foreground">
                     {loading ? "Loading…" : wallet?.address ?? "Not created"}
                   </p>
-                  {wallet?.explorer_url && (
-                    <a
-                      href={wallet.explorer_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 underline underline-offset-4"
-                    >
-                      View on Testnet Explorer
-                      <ArrowRight className="h-3 w-3" />
-                    </a>
-                  )}
                 </div>
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">Balance</p>
@@ -380,34 +397,81 @@ export default function WalletPage() {
                 </div>
               </div>
 
+              <div className="flex flex-wrap gap-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-medium text-foreground shadow-sm">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
+                  Transactions
+                  {wallet?.address ? (
+                    <span className="text-muted-foreground">Latest activity</span>
+                  ) : (
+                    <span className="text-muted-foreground">No wallet yet</span>
+                  )}
+                </div>
+              </div>
+
+              {wallet?.address && (
+                <div className="rounded-xl border border-border/60 bg-background/60 p-3">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Recent transactions</span>
+                    <span>{txLoading ? "Refreshing…" : `${transactions.length || 0} shown`}</span>
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs">
+                    {transactions.length === 0 && !txLoading && (
+                      <p className="text-muted-foreground">No transactions yet.</p>
+                    )}
+                    {transactions.map((tx) => (
+                      <div
+                        key={tx.hash}
+                        className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/50 px-3 py-2"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">{tx.type ?? "Unknown"}</span>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {tx.hash ? `${tx.hash.slice(0, 8)}···${tx.hash.slice(-6)}` : "(pending)"}
+                          </span>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[11px]",
+                            tx.validated ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
+                          )}
+                        >
+                          {tx.validated ? "Validated" : "Pending"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Seed (local only)</p>
-                    <p
-                      className={cn(
-                        "font-mono text-sm",
-                        !seedVisible && "blur-sm brightness-75 select-none",
-                      )}
-                    >
-                      {wallet?.seed ?? "Hidden"}
+                    <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Seed Safety</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {wallet?.encrypted ? "Encrypted at rest" : "Legacy file (unencrypted)"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      File: {wallet?.file ?? "wallet/wallets/wallet.json"}
+                      Location: {wallet?.file ?? "wallet/wallets/wallet.json"}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setSeedVisible((v) => !v)}
-                    disabled={!wallet?.seed}
-                  >
-                    {seedVisible ? "Hide" : "Reveal"}
-                  </Button>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Your seed stays on disk; the API shells into <code>wallet.py</code> for signing.
-                </p>
+                <div className="mt-3 grid gap-2 text-xs text-foreground sm:grid-cols-2">
+                  <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-2">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-700" />
+                    <div>
+                      <p className="font-medium">Locked by a private secret</p>
+                      <p className="text-muted-foreground">Your key material is encrypted with a secret kept off-browser and used only when signing.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-lg bg-muted/60 p-2">
+                    <KeyRound className="mt-0.5 h-4 w-4 text-emerald-700" />
+                    <div>
+                      <p className="font-medium">Local-only</p>
+                      <p className="text-muted-foreground">Keys stay on disk and never travel through the browser; signing happens in a local helper.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -431,7 +495,7 @@ export default function WalletPage() {
 
           <Card className="md:col-span-2 border-border/70 bg-card/90 shadow-lg">
             <CardHeader>
-              <CardTitle>Send a Test Check</CardTitle>
+              <CardTitle>Send Check</CardTitle>
               <CardDescription>
                 Builds a <code>CheckCreate</code> transaction via <code>wallet.py</code>.
               </CardDescription>
@@ -587,7 +651,7 @@ export default function WalletPage() {
                 <Separator />
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm text-muted-foreground">
-                    Uses your locally stored seed to sign the check.
+                    Uses your protected local key material to sign the check.
                   </div>
                   <Button type="submit" disabled={busy === "send" || busy === "charity"} className="gap-2">
                     <ArrowRight className="h-4 w-4" />

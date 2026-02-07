@@ -8,12 +8,18 @@ const execFileAsync = promisify(execFile)
 const WALLET_SCRIPT = path.join(process.cwd(), "wallet", "wallet.py")
 const DEFAULT_WALLET_PATH = path.join(process.cwd(), "wallet", "wallets", "wallet.json")
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3"
+const WALLET_PASSPHRASE = process.env.WALLET_PASSPHRASE
 
-type WalletAction = "create" | "info" | "send-check" | "import"
+type WalletAction = "create" | "info" | "send-check" | "import" | "txs"
 
 async function runWalletCommand(args: string[]) {
+  if (!WALLET_PASSPHRASE) {
+    throw new Error("Set WALLET_PASSPHRASE in the environment before using the wallet.")
+  }
+
   const { stdout, stderr } = await execFileAsync(PYTHON_BIN, args, {
     timeout: 25_000,
+    env: { ...process.env, WALLET_PASSPHRASE },
   })
 
   // If the script writes errors to stderr but still returns JSON, prefer stdout.
@@ -32,7 +38,9 @@ async function runWalletCommand(args: string[]) {
     throw new Error(parsed.error || "Wallet script error")
   }
 
-  return parsed.data
+  // Do not expose the seed or raw payload to the client.
+  const { seed, raw, ...rest } = parsed.data ?? {}
+  return rest
 }
 
 async function handleAction(action: WalletAction, payload: any) {
@@ -90,6 +98,18 @@ async function handleAction(action: WalletAction, payload: any) {
         "--seed",
         seed,
         "--refresh",
+      ]
+      return runWalletCommand(args)
+    }
+    case "txs": {
+      const limit = Math.min(Number(payload?.limit) || 10, 25)
+      const args = [
+        WALLET_SCRIPT,
+        "txs",
+        "--wallet-file",
+        payload?.walletFile || DEFAULT_WALLET_PATH,
+        "--limit",
+        String(limit),
       ]
       return runWalletCommand(args)
     }
