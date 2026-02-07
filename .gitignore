@@ -1,8 +1,8 @@
 /HeavyFingersTartanHacks
-<<<<<<< HEAD
 wallet.json
 todo.md
-
-=======
 .env
->>>>>>> origin/main
+package-lock.json
+/node_modules
+/.next
+
