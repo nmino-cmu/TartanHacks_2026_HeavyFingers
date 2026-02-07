@@ -68,7 +68,3 @@ def get_donate_address(nonprofit_ein, amount, name, email):
     print(debug_response_json)"""
 
     return deposit_addr 
-
-
-m=get_donate_address("earthday.org", 10, "Steve", "e@e.com")
-print(m)
