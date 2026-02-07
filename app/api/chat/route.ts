@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process"
+import path from "node:path"
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai"
 import {
   appendAssistantCompletion,
@@ -6,44 +8,14 @@ import {
 
 export const maxDuration = 60
 
-const DAEDALUS_SYSTEM_PROMPT = `You are Daedalus, an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.
-You have a warm, grounded personality inspired by nature and sustainability.
-When appropriate, you weave in eco-friendly perspectives without being preachy.
-You provide clear, well-structured responses with practical advice.
-You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.
-Always be concise yet thorough. Use markdown formatting when it helps clarity.`
-
-const DAEDALUS_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
-const DEFAULT_DEDALUS_MODEL = "anthropic/claude-opus-4-5"
 type StreamFinishReason = "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other"
 
-type DedalusRole = "system" | "user" | "assistant"
-
-interface DedalusChatMessage {
-  role: DedalusRole
-  content: string
-}
-
-interface DedalusSseChoice {
-  delta?: {
-    content?: unknown
-  }
+interface AskQuestionEvent {
+  type?: unknown
+  token?: unknown
+  text?: unknown
+  message?: unknown
   finish_reason?: unknown
-}
-
-interface DedalusErrorPayload {
-  error?: {
-    message?: unknown
-  }
-}
-
-function getDedalusApiKeyError(): string | null {
-  const dedalusApiKey = process.env.DEDALUS_API_KEY?.trim()
-  if (!dedalusApiKey || dedalusApiKey === "your_key_here") {
-    return "Missing or invalid DEDALUS_API_KEY. Update your local environment variables and restart the server."
-  }
-
-  return null
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -64,191 +36,38 @@ function extractTextFromUIMessage(message: UIMessage): string {
   return ""
 }
 
-function toDedalusMessages(messages: UIMessage[]): DedalusChatMessage[] {
-  const dedalusMessages: DedalusChatMessage[] = [
-    { role: "system", content: DAEDALUS_SYSTEM_PROMPT },
-  ]
-
-  for (const message of messages) {
-    if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") {
+function getLatestUserMessage(messages: UIMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.role !== "user") {
       continue
     }
 
     const text = extractTextFromUIMessage(message).trim()
-    if (!text) {
-      continue
+    if (text) {
+      return text
     }
-
-    dedalusMessages.push({ role: message.role, content: text })
   }
 
-  return dedalusMessages
+  return null
 }
 
-function mapDedalusFinishReason(rawFinishReason: string): StreamFinishReason {
-  switch (rawFinishReason) {
+function normalizeFinishReason(rawReason: string): StreamFinishReason {
+  switch (rawReason) {
     case "stop":
       return "stop"
     case "length":
       return "length"
     case "content_filter":
+    case "content-filter":
       return "content-filter"
     case "tool_calls":
+    case "tool-calls":
       return "tool-calls"
     case "error":
       return "error"
     default:
       return "other"
-  }
-}
-
-async function readDedalusErrorResponse(response: Response): Promise<string> {
-  let errorBody: unknown = null
-
-  try {
-    errorBody = await response.json()
-  } catch (error) {
-    errorBody = null
-  }
-
-  const message =
-    errorBody &&
-    typeof errorBody === "object" &&
-    typeof (errorBody as DedalusErrorPayload).error?.message === "string"
-      ? ((errorBody as DedalusErrorPayload).error!.message as string)
-      : null
-
-  return message || `Dedalus request failed with status ${response.status}.`
-}
-
-function extractSseDataLines(rawEvent: string): string {
-  return rawEvent
-    .split("\n")
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trimStart())
-    .join("\n")
-}
-
-function processDedalusSseEvent(
-  rawEvent: string,
-  onToken: (token: string) => void,
-  onFinishReason: (reason: StreamFinishReason) => void,
-): { isDone: boolean } {
-  const data = extractSseDataLines(rawEvent)
-  const normalizedData = data.trim()
-  if (!normalizedData) {
-    return { isDone: false }
-  }
-
-  if (normalizedData === "[DONE]") {
-    return { isDone: true }
-  }
-
-  let payload: unknown
-  try {
-    payload = JSON.parse(normalizedData)
-  } catch (error) {
-    return { isDone: false }
-  }
-
-  const errorMessage =
-    payload &&
-    typeof payload === "object" &&
-    typeof (payload as DedalusErrorPayload).error?.message === "string"
-      ? ((payload as DedalusErrorPayload).error!.message as string)
-      : null
-
-  if (errorMessage) {
-    throw new Error(errorMessage)
-  }
-
-  const choices = (payload as { choices?: unknown }).choices
-  if (!Array.isArray(choices)) {
-    return { isDone: false }
-  }
-
-  for (const rawChoice of choices) {
-    if (!rawChoice || typeof rawChoice !== "object") {
-      continue
-    }
-
-    const choice = rawChoice as DedalusSseChoice
-    const deltaToken = choice.delta?.content
-    if (typeof deltaToken === "string" && deltaToken.length > 0) {
-      onToken(deltaToken)
-    }
-
-    const finishReason = choice.finish_reason
-    if (typeof finishReason === "string" && finishReason.length > 0) {
-      onFinishReason(mapDedalusFinishReason(finishReason))
-    }
-  }
-
-  return { isDone: false }
-}
-
-async function streamDedalusCompletion(
-  messages: UIMessage[],
-  abortSignal: AbortSignal,
-  onToken: (token: string) => void,
-  onFinishReason: (reason: StreamFinishReason) => void,
-): Promise<void> {
-  const dedalusApiKey = process.env.DEDALUS_API_KEY?.trim()
-  if (!dedalusApiKey) {
-    throw new Error("Missing DEDALUS_API_KEY.")
-  }
-
-  const model = process.env.DEDALUS_MODEL?.trim() || DEFAULT_DEDALUS_MODEL
-  const response = await fetch(`${DAEDALUS_API_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${dedalusApiKey}`,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-    },
-    body: JSON.stringify({
-      model,
-      messages: toDedalusMessages(messages),
-      stream: true,
-    }),
-    signal: abortSignal,
-  })
-
-  if (!response.ok) {
-    throw new Error(await readDedalusErrorResponse(response))
-  }
-
-  if (!response.body) {
-    throw new Error("Dedalus stream response did not include a body.")
-  }
-
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-  let buffer = ""
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) {
-      break
-    }
-
-    buffer += value.replace(/\r\n/g, "\n")
-
-    let eventDelimiter = buffer.indexOf("\n\n")
-    while (eventDelimiter !== -1) {
-      const rawEvent = buffer.slice(0, eventDelimiter)
-      buffer = buffer.slice(eventDelimiter + 2)
-      const { isDone } = processDedalusSseEvent(rawEvent, onToken, onFinishReason)
-      if (isDone) {
-        return
-      }
-
-      eventDelimiter = buffer.indexOf("\n\n")
-    }
-  }
-
-  const trailingEvent = buffer.trim()
-  if (trailingEvent) {
-    processDedalusSseEvent(trailingEvent, onToken, onFinishReason)
   }
 }
 
@@ -266,23 +85,143 @@ function getErrorMessage(error: unknown): string {
 
 function toClientError(error: unknown): string {
   const message = getErrorMessage(error)
-
   if (message.includes("DEDALUS_API_KEY")) {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
+  return message || "Chat request failed."
+}
 
-  if (message.includes("Dedalus")) {
-    return message
+async function streamFromAskQuestionScript(
+  userMessage: string,
+  abortSignal: AbortSignal,
+  onToken: (token: string) => void,
+): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
+  const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
+  const jsonPath =
+    process.env.GLOBAL_CONVERSATION_JSON?.trim() ||
+    path.join(process.cwd(), "dedalus_stuff", "test_chat_info.json")
+
+  const args = [scriptPath, "--message", userMessage, "--json-path", jsonPath, "--stream"]
+  const modelOverride = process.env.DEDALUS_MODEL?.trim()
+  if (modelOverride) {
+    args.push("--model", modelOverride)
   }
 
-  return "Chat request failed. Check server logs for details."
+  return await new Promise((resolve, reject) => {
+    const child = spawn("python3", args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+
+    let stdoutBuffer = ""
+    let stderrBuffer = ""
+    let assistantText = ""
+    let finishReason: StreamFinishReason = "stop"
+    let reportedError: string | null = null
+
+    const onAbort = () => {
+      child.kill("SIGTERM")
+    }
+    abortSignal.addEventListener("abort", onAbort, { once: true })
+
+    const consumeEventLine = (line: string) => {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        return
+      }
+
+      let event: AskQuestionEvent
+      try {
+        event = JSON.parse(trimmed) as AskQuestionEvent
+      } catch (error) {
+        return
+      }
+
+      if (event.type === "token" && typeof event.token === "string") {
+        onToken(event.token)
+        assistantText += event.token
+        return
+      }
+
+      if (event.type === "final") {
+        if (typeof event.text === "string" && event.text.length > 0) {
+          assistantText = event.text
+        }
+        if (typeof event.finish_reason === "string") {
+          finishReason = normalizeFinishReason(event.finish_reason)
+        }
+        return
+      }
+
+      if (event.type === "error" && typeof event.message === "string" && event.message.trim()) {
+        reportedError = event.message
+      }
+    }
+
+    child.stdout.setEncoding("utf8")
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk
+      let newlineIndex = stdoutBuffer.indexOf("\n")
+
+      while (newlineIndex !== -1) {
+        const line = stdoutBuffer.slice(0, newlineIndex)
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1)
+        consumeEventLine(line)
+        newlineIndex = stdoutBuffer.indexOf("\n")
+      }
+    })
+
+    child.stderr.setEncoding("utf8")
+    child.stderr.on("data", (chunk: string) => {
+      stderrBuffer += chunk
+    })
+
+    child.on("error", (error) => {
+      abortSignal.removeEventListener("abort", onAbort)
+      reject(error)
+    })
+
+    child.on("close", (code) => {
+      abortSignal.removeEventListener("abort", onAbort)
+
+      if (stdoutBuffer.trim()) {
+        consumeEventLine(stdoutBuffer)
+      }
+
+      if (reportedError) {
+        reject(new Error(reportedError))
+        return
+      }
+
+      if (code !== 0) {
+        const stderrText = stderrBuffer.trim()
+        reject(
+          new Error(
+            stderrText || `askQuestion.py exited with code ${code ?? "unknown"}.`,
+          ),
+        )
+        return
+      }
+
+      if (!assistantText.trim()) {
+        reject(new Error("askQuestion.py returned an empty assistant response."))
+        return
+      }
+
+      resolve({ assistantText, finishReason })
+    })
+  })
 }
 
 export async function POST(req: Request) {
   try {
-    const dedalusApiKeyError = getDedalusApiKeyError()
-    if (dedalusApiKeyError) {
-      return Response.json({ error: dedalusApiKeyError }, { status: 500 })
+    const dedalusApiKey = process.env.DEDALUS_API_KEY?.trim()
+    if (!dedalusApiKey || dedalusApiKey === "your_key_here") {
+      return Response.json(
+        { error: "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server." },
+        { status: 500 },
+      )
     }
 
     const url = new URL(req.url)
@@ -290,10 +229,15 @@ export async function POST(req: Request) {
     const { messages }: { messages: UIMessage[] } = await req.json()
     const conversationId = await persistPromptSnapshot(requestedConversationId, messages)
 
+    const latestUserMessage = getLatestUserMessage(messages)
+    if (!latestUserMessage) {
+      return Response.json({ error: "No user message found in chat payload." }, { status: 400 })
+    }
+
     const stream = createUIMessageStream({
       originalMessages: messages,
       onError: (error) => {
-        console.error("Dedalus stream failed.", error)
+        console.error("askQuestion.py stream failed.", error)
         return toClientError(error)
       },
       onFinish: async (event) => {
@@ -324,16 +268,14 @@ export async function POST(req: Request) {
         writer.write({ type: "start" })
         writer.write({ type: "text-start", id: textPartId })
 
-        await streamDedalusCompletion(
-          messages,
+        const pythonResult = await streamFromAskQuestionScript(
+          latestUserMessage,
           req.signal,
           (token) => {
             writer.write({ type: "text-delta", id: textPartId, delta: token })
           },
-          (nextFinishReason) => {
-            finishReason = nextFinishReason
-          },
         )
+        finishReason = pythonResult.finishReason
 
         writer.write({ type: "text-end", id: textPartId })
         writer.write({ type: "finish", finishReason })
