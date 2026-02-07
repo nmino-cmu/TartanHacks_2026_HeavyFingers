@@ -25,6 +25,13 @@ def get_donate_address(nonprofit_ein, amount, name, email):
 
     deposit_addr = response_json["address"]
 
+
+    debug_link = f"https://api.givepact.io/v1/verify?address={deposit_addr}"
+    debug_response = requests.get(debug_link)
+    if(debug_response.status !=200): return None
+    debug_response_json = debug_response.json()
+    print(debug_response_json)
+
     return deposit_addr 
 
 
