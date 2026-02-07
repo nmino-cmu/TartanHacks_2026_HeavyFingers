@@ -1547,13 +1547,9 @@ export async function POST(req: Request) {
       }
     }
 
-<<<<<<< HEAD
-    const estimatedPromptTokens = splitIntoStreamingTokens(promptForModel).length
-=======
     // Keep fallback prompt-token reporting anchored to the user's message text.
     // Tool-injected context can be much larger and distorts UI-facing estimates.
     const estimatedPromptTokens = splitIntoStreamingTokens(latestUserMessage).length
->>>>>>> mcericola
     const stream = createUIMessageStream({
       originalMessages: messages,
       onError: (error) => {

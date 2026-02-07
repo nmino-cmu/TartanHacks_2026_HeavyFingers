@@ -407,6 +407,25 @@ function SettingsIcon({ className }: { className?: string }) {
   )
 }
 
+function WalletIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1H5a2 2 0 0 0 0 4h14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+      <path d="M19 12h2a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1h-2v3Z" />
+      <circle cx="16" cy="10.5" r="0.5" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -999,7 +1018,19 @@ export function ChatContainer() {
           )}
         </div>
 
-        <div className="border-t border-border/70 p-2">
+        <div className="space-y-2 border-t border-border/70 p-2">
+          <Link
+            href="/wallet"
+            className="group flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm text-foreground transition-colors hover:border-emerald-600 hover:bg-emerald-500/10 dark:hover:border-emerald-400 dark:hover:bg-emerald-400/15"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-muted/40 text-muted-foreground transition-colors group-hover:border-emerald-600 group-hover:text-emerald-700 dark:group-hover:border-emerald-400 dark:group-hover:text-emerald-300">
+              <WalletIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-medium">Wallet</p>
+              <p className="truncate text-xs text-muted-foreground">View and fund XRPL wallet</p>
+            </div>
+          </Link>
           <Link
             href="/settings"
             className="group flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm text-foreground transition-colors hover:border-emerald-600 hover:bg-emerald-500/10 dark:hover:border-emerald-400 dark:hover:bg-emerald-400/15"
@@ -1045,6 +1076,14 @@ export function ChatContainer() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/wallet"
+              className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-900 shadow-sm transition hover:border-emerald-700 hover:bg-emerald-500/20 dark:border-emerald-300/70 dark:bg-emerald-400/15 dark:text-emerald-100 dark:hover:border-emerald-200 dark:hover:bg-emerald-400/25"
+              aria-label="Open wallet"
+            >
+              <WalletIcon className="h-3.5 w-3.5" />
+              Wallet
+            </Link>
             {themeMounted ? (
               <button
                 type="button"
