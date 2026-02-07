@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
-import { ChatInput } from "@/components/chat-input"
+import { ChatInput, type PendingAttachment } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
+import { toast } from "@/hooks/use-toast"
 import {
   Dialog,
   DialogContent,
@@ -14,58 +14,36 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useTheme } from "next-themes"
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const ALLOWED_MODELS = new Set<string>([
+const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1"
+const CHAT_MODELS = new Set<string>([
   "anthropic/claude-opus-4-5",
-  "openai/gpt-4o-mini",
-  "google/gemini-1.5-pro",
+  "anthropic/claude-sonnet-4-5",
+  "anthropic/claude-haiku-4-5",
+  "openai/gpt-5",
+  "openai/gpt-5-mini",
+  "openai/gpt-5-nano",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
 ])
+const IMAGE_MODELS = new Set<string>(["openai/gpt-image-1", "openai/dall-e-3"])
 
 const CHARS_PER_TOKEN = 4
 const KG_PER_TOKEN = 0.0000005
-
-function extractMessageText(message: UIMessage): string {
-  const partsText =
-    message.parts
-      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("") || ""
-
-  if (partsText) return partsText
-
-  const withContent = message as UIMessage & { content?: unknown }
-  const { content } = withContent
-
-  if (typeof content === "string") {
-    return content
-  }
-
-  if (Array.isArray(content)) {
-    const textBlocks = content
-      .map((item) => {
-        if (typeof item === "string") return item
-        if (item && typeof item === "object" && "type" in item && "text" in (item as { type: unknown; text?: unknown })) {
-          const maybeText = (item as { text?: unknown }).text
-          if (typeof maybeText === "string") return maybeText
-        }
-        return ""
-      })
-      .filter(Boolean)
-      .join("")
-
-    if (textBlocks) {
-      return textBlocks
-    }
-  }
-
-  return ""
-}
+const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const MAX_OCR_ATTACHMENT_LABEL = "50 MB"
+const SUPPORTED_OCR_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
 
 interface ConversationResponse {
   conversationId: string
@@ -84,13 +62,86 @@ interface ConversationsResponse {
   conversations: ConversationSummary[]
 }
 
+interface MessageAttachment {
+  id: string
+  name: string
+  size: number
+  type: string
+}
+
+interface PendingOcrAttachment extends PendingAttachment {
+  contentBase64?: string
+  documentUrl?: string
+  kind: "file" | "url"
+}
+
+interface ChatRequestAttachment {
+  name: string
+  size: number
+  type: string
+  kind: "file" | "url"
+  contentBase64?: string
+  documentUrl?: string
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ""
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  return btoa(binary)
+}
+
+function normalizeAttachmentMime(file: File): string | null {
+  const normalizedType = file.type.toLowerCase()
+  if (SUPPORTED_OCR_MIME_TYPES.has(normalizedType)) {
+    return normalizedType
+  }
+
+  const loweredName = file.name.toLowerCase()
+  if (loweredName.endsWith(".pdf")) return "application/pdf"
+  if (loweredName.endsWith(".png")) return "image/png"
+  if (loweredName.endsWith(".jpg") || loweredName.endsWith(".jpeg")) return "image/jpeg"
+  if (loweredName.endsWith(".webp")) return "image/webp"
+  return null
+}
+
+function getAttachmentNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const pathname = parsed.pathname || ""
+    const candidate = pathname.split("/").pop() || ""
+    if (candidate.trim()) {
+      return decodeURIComponent(candidate).slice(0, 200)
+    }
+  } catch {
+    // fall through
+  }
+
+  return "linked-document"
+}
+
 function sanitizeModel(value?: string | null): string {
   if (!value) {
     return DEFAULT_MODEL
   }
 
   const trimmed = value.trim()
-  return ALLOWED_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
+  return CHAT_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
+}
+
+function sanitizeImageModel(value?: string | null): string {
+  if (!value) {
+    return DEFAULT_IMAGE_MODEL
+  }
+
+  const trimmed = value.trim()
+  return IMAGE_MODELS.has(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL
 }
 
 function formatFootprint(kg: number): string {
@@ -211,6 +262,24 @@ function XIcon({ className }: { className?: string }) {
   )
 }
 
+function LeafIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  )
+}
+
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -226,7 +295,10 @@ function formatConversationDate(isoValue: string): string {
 export function ChatContainer() {
   const [input, setInput] = useState("")
   const [model, setModel] = useState(DEFAULT_MODEL)
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
+  const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+  const [themeMounted, setThemeMounted] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isHydratingConversation, setIsHydratingConversation] = useState(true)
@@ -234,15 +306,15 @@ export function ChatContainer() {
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isSearching, setIsSearching] = useState(false)
-  const [searchStatus, setSearchStatus] = useState<string | null>(null)
-  const [scrollTargetMessageId, setScrollTargetMessageId] = useState<string | null>(null)
-  const [searchHighlightTerms, setSearchHighlightTerms] = useState<string[]>([])
-  const [searchCursor, setSearchCursor] = useState<{ conversationId: string | null; messageId: string | null } | null>(null)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
+  const [attachmentsByMessageId, setAttachmentsByMessageId] = useState<Record<string, MessageAttachment[]>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const conversationCache = useRef(new Map<string, ConversationResponse>())
+  const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
+  const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
   const isMobile = useIsMobile()
+  const { theme, setTheme } = useTheme()
 
   const transport = useMemo(
     () =>
@@ -261,6 +333,7 @@ export function ChatContainer() {
     isMutatingConversation ||
     status === "streaming" ||
     status === "submitted"
+  const isDarkTheme = theme === "dark"
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
@@ -279,141 +352,21 @@ export function ChatContainer() {
   const tokenEstimate = charCount / CHARS_PER_TOKEN
   const footprintKg = tokenEstimate * KG_PER_TOKEN
 
-  const scrollToMessage = useCallback((targetMessageId: string): boolean => {
-    if (typeof window === "undefined") return false
-
-    const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-    if (!el) return false
-
-    el.scrollIntoView({ behavior: "smooth", block: "center" })
-    el.classList.add("ring-2", "ring-primary")
-    window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 1200)
-    return true
+  const resetAttachmentUiState = useCallback(() => {
+    setPendingAttachments([])
+    setAttachmentsByMessageId({})
+    queuedAttachmentsRef.current = []
+    seenUserMessageIdsRef.current = new Set()
   }, [])
 
-  const findNextMessageIdByQuery = useCallback(
-    (messageList: UIMessage[], query: string, afterMessageId?: string | null): string | null => {
-      const trimmed = query.trim().toLowerCase()
-      if (!trimmed) return null
-
-      let startIndex = 0
-      if (afterMessageId) {
-        const idx = messageList.findIndex((m) => m.id === afterMessageId)
-        if (idx !== -1) {
-          startIndex = idx + 1
-        }
-      }
-
-      for (let i = startIndex; i < messageList.length; i += 1) {
-        const text = extractMessageText(messageList[i]).toLowerCase()
-        if (text.includes(trimmed)) {
-          return messageList[i].id
-        }
-      }
-      return null
-    },
-    [],
-  )
-
-  const getConversationData = useCallback(
-    async (targetConversationId: string): Promise<ConversationResponse> => {
-      if (targetConversationId === conversationId && conversationId) {
-        return {
-          conversationId,
-          messages,
-          model,
-        }
-      }
-
-      const cached = conversationCache.current.get(targetConversationId)
-      if (cached) {
-        return cached
-      }
-
-      const response = await fetch(
-        `/api/conversation?conversationId=${encodeURIComponent(targetConversationId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
-      )
-
-      if (!response.ok) {
-        throw new Error(`Conversation fetch failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      conversationCache.current.set(targetConversationId, data)
-      return data
-    },
-    [conversationId, messages, model],
-  )
-
-  const findNextOccurrence = useCallback(
-    async (query: string, startAfter?: { conversationId: string | null; messageId: string | null } | null) => {
-      const trimmed = query.trim()
-      if (!trimmed) return null
-
-      const orderedConversationIds: string[] = []
-      if (conversationId) {
-        orderedConversationIds.push(conversationId)
-      }
-      for (const c of conversations) {
-        if (c.conversationId !== conversationId) {
-          orderedConversationIds.push(c.conversationId)
-        }
-      }
-
-      const hasStart = Boolean(startAfter?.conversationId)
-      let started = !hasStart
-
-      for (const cid of orderedConversationIds) {
-        const data = await getConversationData(cid)
-        const afterId = !started && startAfter?.conversationId === cid ? startAfter?.messageId : null
-        const matchId = findNextMessageIdByQuery(data.messages, trimmed, afterId || undefined)
-        if (matchId) {
-          return { conversation: data, messageId: matchId }
-        }
-        if (!started && startAfter?.conversationId === cid) {
-          started = true
-        }
-      }
-
-      return null
-    },
-    [conversationId, conversations, findNextMessageIdByQuery, getConversationData],
-  )
-
   useEffect(() => {
-    if (scrollTargetMessageId) return
     const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
     messagesEndRef.current?.scrollIntoView({ behavior })
-  }, [messages, status, scrollTargetMessageId])
+  }, [messages, status])
 
   useEffect(() => {
-    if (!scrollTargetMessageId) return
-
-    const timer = window.setTimeout(() => {
-      const didScroll = scrollToMessage(scrollTargetMessageId)
-      if (didScroll) {
-        setScrollTargetMessageId(null)
-      }
-    }, 50)
-
-    return () => window.clearTimeout(timer)
-  }, [scrollTargetMessageId, scrollToMessage, messages])
-
-  useEffect(() => {
-    if (!isMobile) {
-      setIsSidebarOpen(true)
-    }
-  }, [isMobile])
-
-  useEffect(() => {
-    setSearchCursor(null)
-    setSearchStatus(null)
-    setSearchHighlightTerms([])
-  }, [searchQuery])
+    setThemeMounted(true)
+  }, [])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -433,27 +386,6 @@ export function ChatContainer() {
     }
   }, [])
 
-  useEffect(() => {
-    if (conversationId) {
-      conversationCache.current.set(conversationId, {
-        conversationId,
-        messages,
-        model,
-      })
-    }
-  }, [conversationId, messages, model])
-
-  const applyConversationData = useCallback(
-    (data: ConversationResponse) => {
-      setConversationId(data.conversationId)
-      setModel(sanitizeModel(data.model))
-      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-      setMessages(data.messages)
-      conversationCache.current.set(data.conversationId, data)
-    },
-    [setMessages],
-  )
-
   const loadConversation = useCallback(
     async (targetConversationId?: string | null): Promise<ConversationResponse> => {
       const query = targetConversationId
@@ -470,11 +402,45 @@ export function ChatContainer() {
       }
 
       const data: ConversationResponse = await response.json()
-      applyConversationData(data)
+      setConversationId(data.conversationId)
+      setModel(sanitizeModel(data.model))
+      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
+      setMessages(data.messages)
+      resetAttachmentUiState()
       return data
     },
-    [applyConversationData],
+    [setMessages, resetAttachmentUiState],
   )
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return
+    }
+
+    let needsUpdate = false
+    const nextAssignments: Record<string, MessageAttachment[]> = {}
+
+    for (const message of messages) {
+      if (message.role !== "user") {
+        continue
+      }
+
+      if (seenUserMessageIdsRef.current.has(message.id)) {
+        continue
+      }
+
+      seenUserMessageIdsRef.current.add(message.id)
+      const queued = queuedAttachmentsRef.current.shift() ?? []
+      if (queued.length > 0) {
+        nextAssignments[message.id] = queued
+        needsUpdate = true
+      }
+    }
+
+    if (needsUpdate) {
+      setAttachmentsByMessageId((previous) => ({ ...previous, ...nextAssignments }))
+    }
+  }, [messages])
 
   useEffect(() => {
     let isMounted = true
@@ -513,13 +479,37 @@ export function ChatContainer() {
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading || !conversationId) return
+    const attachmentSnapshot: MessageAttachment[] = pendingAttachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.type,
+    }))
+    const requestAttachments: ChatRequestAttachment[] = pendingAttachments.map((attachment) => ({
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.type,
+      kind: attachment.kind,
+      contentBase64: attachment.contentBase64,
+      documentUrl: attachment.documentUrl,
+    }))
+    queuedAttachmentsRef.current.push(attachmentSnapshot)
     sendMessage(
       { text: input },
       {
-        body: { conversationId, model },
+        body: {
+          conversationId,
+          model,
+          webSearchEnabled,
+          deepSearchEnabled,
+          imageGenerationEnabled,
+          imageModel,
+          attachments: requestAttachments,
+        },
       },
     )
     setInput("")
+    setPendingAttachments([])
   }
 
   const handleSuggestionClick = (prompt: string) => {
@@ -527,80 +517,17 @@ export function ChatContainer() {
     sendMessage(
       { text: prompt },
       {
-        body: { conversationId, model },
+        body: {
+          conversationId,
+          model,
+          webSearchEnabled,
+          deepSearchEnabled,
+          imageGenerationEnabled,
+          imageModel,
+        },
       },
     )
   }
-
-  const handleSearchNext = useCallback(async () => {
-    const query = searchQuery.trim()
-    if (!query || isSearching || isLoading) return
-
-    setIsSearching(true)
-    setSearchStatus("Searching...")
-    setSearchHighlightTerms([query])
-
-    try {
-      const next = await findNextOccurrence(query, searchCursor)
-      if (next) {
-        const isNewConversation = next.conversation.conversationId !== conversationId
-        if (isNewConversation) {
-          applyConversationData(next.conversation)
-          if (isMobile) {
-            setIsSidebarOpen(false)
-          }
-        }
-        setScrollTargetMessageId(next.messageId)
-        setSearchCursor({ conversationId: next.conversation.conversationId, messageId: next.messageId })
-        const label =
-          conversations.find((c) => c.conversationId === next.conversation.conversationId)?.title ||
-          next.conversation.conversationId
-        setSearchStatus(`Found in ${label}.`)
-        return
-      }
-
-      if (searchCursor) {
-        const wrapped = await findNextOccurrence(query, null)
-        if (wrapped) {
-          const isNewConversation = wrapped.conversation.conversationId !== conversationId
-          if (isNewConversation) {
-            applyConversationData(wrapped.conversation)
-            if (isMobile) {
-              setIsSidebarOpen(false)
-            }
-          }
-          setScrollTargetMessageId(wrapped.messageId)
-          setSearchCursor({
-            conversationId: wrapped.conversation.conversationId,
-            messageId: wrapped.messageId,
-          })
-          const label =
-            conversations.find((c) => c.conversationId === wrapped.conversation.conversationId)?.title ||
-            wrapped.conversation.conversationId
-          setSearchStatus(`Wrapped to first match in ${label}.`)
-          return
-        }
-      }
-
-      setSearchStatus("No matches found.")
-    } catch (error) {
-      console.error("Search failed.", error)
-      setSearchStatus("Search failed. Please try again.")
-    } finally {
-      setIsSearching(false)
-    }
-  }, [
-    applyConversationData,
-    conversations,
-    conversationId,
-    findNextOccurrence,
-    isLoading,
-    isMobile,
-    isSearching,
-    searchQuery,
-    searchCursor,
-    setIsSidebarOpen,
-  ])
 
   const handleSelectConversation = async (targetConversationId: string) => {
     if (!targetConversationId || targetConversationId === conversationId || isLoading) {
@@ -644,6 +571,7 @@ export function ChatContainer() {
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
       setInput("")
+      resetAttachmentUiState()
       await refreshConversations()
 
       if (isMobile) {
@@ -740,6 +668,7 @@ export function ChatContainer() {
         setModel(sanitizeModel(data.model))
         window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
         setMessages(data.messages)
+        resetAttachmentUiState()
       }
 
       if (editingConversationId === targetConversationId) {
@@ -756,22 +685,37 @@ export function ChatContainer() {
     }
   }
 
+  const activeToolStatus = useMemo(() => {
+    if (status !== "submitted") {
+      return null
+    }
+
+    const hasOcrTool = pendingAttachments.length > 0
+    const hasWebTool = webSearchEnabled
+    const hasDeepTool = deepSearchEnabled
+    const hasImageTool = imageGenerationEnabled
+
+    const runningSearchLabels = [
+      hasWebTool ? "web search" : null,
+      hasDeepTool ? "deep search" : null,
+    ].filter((label): label is string => Boolean(label))
+    if (hasOcrTool && runningSearchLabels.length > 0) {
+      return `Running tools: OCR and ${runningSearchLabels.join(" + ")}...`
+    }
+    if (hasOcrTool) {
+      return "Running tool: OCR parsing..."
+    }
+    if (runningSearchLabels.length > 0) {
+      return `Running tool: ${runningSearchLabels.join(" + ")}...`
+    }
+    if (hasImageTool) {
+      return "Running tool: image generation..."
+    }
+    return "Preparing response..."
+  }, [status, pendingAttachments.length, webSearchEnabled, deepSearchEnabled, imageGenerationEnabled])
+
   return (
     <div className="relative flex flex-1 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setDashboardOpen(true)}
-        className="fixed right-3 top-16 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
-        aria-label="Open carbon footprint dashboard"
-      >
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span aria-hidden>🌿</span>
-        </div>
-        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
-          Footprint: {formatFootprint(footprintKg)}
-        </span>
-      </button>
-
       {isMobile && isSidebarOpen ? (
         <button
           type="button"
@@ -908,51 +852,56 @@ export function ChatContainer() {
           isSidebarOpen ? "md:ml-72" : "md:ml-0",
         )}
       >
-        <div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen((prev) => !prev)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
-            aria-label="Toggle conversation sidebar"
-          >
-            <MenuIcon className="h-4 w-4" />
-          </button>
-          <p className="truncate text-sm font-medium text-foreground">
-            {activeConversation?.title || conversationId || "conversation"}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-card/60 px-3 py-2">
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void handleSearchNext()
-            }}
-          >
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search messages"
-              className="h-9 w-60"
-              disabled={isLoading || isSearching}
-            />
-            <Button
-              type="submit"
-              variant="outline"
-              className="h-9"
-              disabled={isLoading || isSearching}
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
+              aria-label="Toggle conversation sidebar"
             >
-              {isSearching ? "Searching..." : "Find next"}
-            </Button>
-          </form>
-        </div>
-
-        {searchStatus ? (
-          <div className="border-b border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground">
-            {searchStatus}
+              <MenuIcon className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <LeafIcon className="h-4 w-4" />
+              </div>
+              <span className="hidden text-sm font-semibold tracking-tight text-foreground sm:inline">
+                Verdant
+              </span>
+            </div>
+            <p className="truncate text-sm font-medium text-foreground">
+              {activeConversation?.title || conversationId || "conversation"}
+            </p>
           </div>
-        ) : null}
+
+          <div className="flex shrink-0 items-center gap-2">
+            {themeMounted ? (
+              <button
+                type="button"
+                onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
+                className="inline-flex h-8 items-center rounded-full border-2 border-emerald-700 bg-emerald-100/80 px-3 text-xs font-medium text-emerald-950 ring-1 ring-emerald-700/35 transition hover:-translate-y-0.5 hover:border-emerald-800 hover:bg-emerald-200 hover:shadow-[0_10px_24px_-10px_rgba(16,185,129,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/80 dark:border-emerald-300 dark:bg-emerald-500/30 dark:text-emerald-50 dark:ring-emerald-300/45 dark:hover:border-emerald-200 dark:hover:bg-emerald-500/45 dark:focus-visible:ring-emerald-300/95"
+                aria-label="Toggle theme"
+              >
+                {isDarkTheme ? "🌙 Dark" : "☀️ Light"}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setDashboardOpen(true)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm transition hover:border-primary/50 hover:bg-background"
+              aria-label="Open carbon footprint dashboard"
+            >
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <span aria-hidden>🌿</span>
+              </div>
+              <span className="hidden whitespace-nowrap sm:inline" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+                Footprint: {formatFootprint(footprintKg)}
+              </span>
+            </button>
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {messages.length === 0 ? (
@@ -963,10 +912,20 @@ export function ChatContainer() {
                 <ChatMessage
                   key={message.id}
                   message={message}
+                  attachments={attachmentsByMessageId[message.id] ?? []}
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
-                  highlightTerms={searchHighlightTerms}
                 />
               ))}
+              {activeToolStatus ? (
+                <div className="flex gap-3 px-4 py-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-primary-foreground" />
+                  </div>
+                  <div className="max-w-[75%] rounded-2xl border border-border/60 bg-card px-4 py-3 text-sm text-card-foreground shadow-sm">
+                    {activeToolStatus}
+                  </div>
+                </div>
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -994,6 +953,98 @@ export function ChatContainer() {
           isLoading={isLoading}
           model={model}
           onModelChange={(value) => setModel(sanitizeModel(value))}
+          imageGenerationEnabled={imageGenerationEnabled}
+          onToggleImageGeneration={() => setImageGenerationEnabled((current) => !current)}
+          imageModel={imageModel}
+          onImageModelChange={(value) => setImageModel(sanitizeImageModel(value))}
+          webSearchEnabled={webSearchEnabled}
+          onToggleWebSearch={() => setWebSearchEnabled((current) => !current)}
+          deepSearchEnabled={deepSearchEnabled}
+          onToggleDeepSearch={() => setDeepSearchEnabled((current) => !current)}
+          attachments={pendingAttachments}
+          onAddFiles={(files) => {
+            if (!files || files.length === 0) {
+              return
+            }
+
+            void (async () => {
+              const selectedFiles = Array.from(files)
+              const supportedFiles = selectedFiles
+                .map((file) => ({ file, mimeType: normalizeAttachmentMime(file) }))
+                .filter(
+                  (entry): entry is { file: File; mimeType: string } =>
+                    typeof entry.mimeType === "string",
+                )
+
+              if (supportedFiles.length === 0) {
+                toast({
+                  title: "Unsupported file type",
+                  description: "Supported: PDF, PNG, JPG, JPEG, WEBP.",
+                  variant: "destructive",
+                })
+                return
+              }
+
+              const oversizedFiles = supportedFiles.filter(
+                ({ file }) => file.size > MAX_OCR_ATTACHMENT_BYTES,
+              )
+              if (oversizedFiles.length > 0) {
+                toast({
+                  title: "Unsupported file size",
+                  description: `Files larger than ${MAX_OCR_ATTACHMENT_LABEL} are not supported.`,
+                  variant: "destructive",
+                })
+              }
+
+              const allowedFiles = supportedFiles.filter(
+                ({ file }) => file.size > 0 && file.size <= MAX_OCR_ATTACHMENT_BYTES,
+              )
+              if (allowedFiles.length === 0) {
+                return
+              }
+
+              const preparedFiles = await Promise.all(
+                allowedFiles.map(async ({ file, mimeType }, index) => {
+                  const contentBase64 = arrayBufferToBase64(await file.arrayBuffer())
+                  return {
+                    id: `pending-file-${Date.now()}-${index}-${Math.random().toString(16).slice(2, 8)}`,
+                    name: file.name,
+                    size: file.size,
+                    type: mimeType,
+                    kind: "file",
+                    contentBase64,
+                  } satisfies PendingOcrAttachment
+                }),
+              )
+
+              setPendingAttachments((current) => [...current, ...preparedFiles])
+            })().catch((error) => {
+              console.error("Failed to prepare OCR attachment.", error)
+              toast({
+                title: "Failed to read file",
+                description: "Please try again with a different file.",
+                variant: "destructive",
+              })
+            })
+          }}
+          onAddAttachmentUrl={(url) => {
+            setPendingAttachments((current) => [
+              ...current,
+              {
+                id: `pending-link-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+                name: getAttachmentNameFromUrl(url),
+                size: 0,
+                type: "text/uri-list",
+                kind: "url",
+                documentUrl: url,
+              } satisfies PendingOcrAttachment,
+            ])
+          }}
+          onRemoveAttachment={(attachmentId) => {
+            setPendingAttachments((current) =>
+              current.filter((attachment) => attachment.id !== attachmentId),
+            )
+          }}
         />
       </div>
 
@@ -1027,11 +1078,6 @@ export function ChatContainer() {
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 text-sm text-foreground">
             Tip: Shorter prompts and specific questions usually reduce token use and footprint.
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button asChild variant="outline" className="border-border/70">
-              <Link href="/carbon-calculation">Carbon emission calculation</Link>
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
