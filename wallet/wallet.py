@@ -10,7 +10,20 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import xrpl
+try:
+    import xrpl
+    from xrpl.clients import JsonRpcClient
+    from xrpl.models.requests.account_info import AccountInfo
+    from xrpl.models.requests.account_tx import AccountTx
+    from xrpl.models.transactions import CheckCreate
+    from xrpl.transaction import XRPLReliableSubmissionException, submit_and_wait
+    from xrpl.wallet import Wallet, generate_faucet_wallet
+except ImportError as exc:  # pragma: no cover - clear error message for missing dep
+    raise SystemExit(
+        "Missing dependency: xrpl-py. Install with `python3 -m pip install xrpl-py` "
+        "or add it to your environment before using wallet.py."
+    ) from exc
+
 try:
     from cryptography.fernet import Fernet
     from cryptography.hazmat.backends import default_backend
@@ -21,12 +34,6 @@ except ImportError as exc:  # pragma: no cover - clear error message for missing
         "Missing dependency: cryptography. Install with `python3 -m pip install cryptography` "
         "or add it to your environment before using wallet.py."
     ) from exc
-from xrpl.clients import JsonRpcClient
-from xrpl.models.requests.account_info import AccountInfo
-from xrpl.models.requests.account_tx import AccountTx
-from xrpl.models.transactions import CheckCreate
-from xrpl.transaction import XRPLReliableSubmissionException, submit_and_wait
-from xrpl.wallet import Wallet, generate_faucet_wallet
 
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 DEFAULT_WALLET_FILE = Path(__file__).resolve().parent / "wallets" / "wallet.json"

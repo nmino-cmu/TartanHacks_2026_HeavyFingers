@@ -1,1 +1,2 @@
 cryptography>=42.0.0
+xrpl-py>=2.0.0

@@ -1,4 +1,4 @@
-import NextAuth from "next-auth"
+import NextAuth, { type NextAuthOptions } from "next-auth"
 import Google from "next-auth/providers/google"
 import Credentials from "next-auth/providers/credentials"
 
@@ -6,7 +6,7 @@ const hasGoogleCreds = Boolean(
   process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
 )
 
-const providers = [
+const providers: NextAuthOptions["providers"] = [
   Credentials({
     name: "Dev Login",
     credentials: {
@@ -34,7 +34,6 @@ const handler = NextAuth({
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET,
-  trustHost: true,
   debug: true,
 })
 
