@@ -40,6 +40,8 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
+DEFAULT_HISTORY_WINDOW_MESSAGES = 14
+DEFAULT_HISTORY_SUMMARY_MAX_CHARS = 1800
 
 
 def emit(event_type: str, **payload: object) -> None:
@@ -209,9 +211,57 @@ def get_system_prompt(bundle: dict) -> str:
     return DEFAULT_SYSTEM_PROMPT
 
 
-def normalize_messages_for_api(bundle: dict) -> list[dict]:
+def _compact_text(value: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    compact = re.sub(r"\s+", " ", value).strip()
+    if len(compact) <= max_chars:
+        return compact
+    if max_chars <= 2:
+        return compact[:max_chars].rstrip()
+    return compact[: max_chars - 1].rstrip() + "…"
+
+
+def _build_history_summary(messages: list[dict], max_chars: int) -> str:
+    if not messages or max_chars <= 0:
+        return ""
+
+    lines: list[str] = []
+    remaining = max_chars
+
+    for entry in messages:
+        role = entry.get("role")
+        content = entry.get("content")
+        if role not in {"user", "assistant", "system"} or not isinstance(content, str):
+            continue
+        normalized = _compact_text(content, 220)
+        if not normalized:
+            continue
+
+        prefix = "User" if role == "user" else "Assistant" if role == "assistant" else "System"
+        line = f"- {prefix}: {normalized}"
+        if len(line) + 1 > remaining:
+            line = _compact_text(line, remaining)
+        if not line:
+            break
+
+        lines.append(line)
+        remaining -= len(line) + 1
+        if remaining <= 0:
+            break
+
+    return "\n".join(lines).strip()
+
+
+def normalize_messages_for_api(
+    bundle: dict,
+    *,
+    history_window_messages: int = DEFAULT_HISTORY_WINDOW_MESSAGES,
+    history_summary_max_chars: int = DEFAULT_HISTORY_SUMMARY_MAX_CHARS,
+) -> list[dict]:
     api_messages: list[dict] = [{"role": "system", "content": get_system_prompt(bundle)}]
     stored = bundle["messages"]["messages"]
+    normalized_messages: list[dict] = []
 
     for entry in stored:
         if not isinstance(entry, dict):
@@ -219,8 +269,29 @@ def normalize_messages_for_api(bundle: dict) -> list[dict]:
         role = entry.get("role")
         text = entry.get("text")
         if role in {"user", "assistant", "system"} and isinstance(text, str) and text.strip():
-            api_messages.append({"role": role, "content": text})
+            normalized_messages.append({"role": role, "content": text})
 
+    history_window = max(1, int(history_window_messages))
+    summary_limit = max(300, int(history_summary_max_chars))
+
+    if len(normalized_messages) > history_window:
+        older_messages = normalized_messages[:-history_window]
+        recent_messages = normalized_messages[-history_window:]
+        summary = _build_history_summary(older_messages, summary_limit)
+        if summary:
+            api_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Conversation summary for earlier turns (compressed for efficiency):\n"
+                        f"{summary}"
+                    ),
+                }
+            )
+        api_messages.extend(recent_messages)
+        return api_messages
+
+    api_messages.extend(normalized_messages)
     return api_messages
 
 
@@ -318,6 +389,8 @@ def run_dedalus_stream(
     model: str,
     messages: list[dict],
     stream: bool,
+    max_tokens: int | None = None,
+    available_models: list[str] | None = None,
 ) -> tuple[str, str]:
     user_agent = os.getenv("DEDALUS_USER_AGENT", "").strip() or DEFAULT_USER_AGENT
     payload = {
@@ -325,6 +398,10 @@ def run_dedalus_stream(
         "messages": messages,
         "stream": stream,
     }
+    if isinstance(max_tokens, int) and max_tokens > 0:
+        payload["max_tokens"] = max_tokens
+    if isinstance(available_models, list) and available_models:
+        payload["available_models"] = available_models
 
     request = urllib.request.Request(
         url=f"{api_base_url.rstrip('/')}/chat/completions",
@@ -542,6 +619,29 @@ def parse_args() -> argparse.Namespace:
         help="Optional model override. Defaults to active conversation model, then DEDALUS_MODEL.",
     )
     parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Optional max_tokens cap for this completion.",
+    )
+    parser.add_argument(
+        "--available-models",
+        default="",
+        help="Optional comma-separated list of allowed models for this run.",
+    )
+    parser.add_argument(
+        "--history-window-messages",
+        type=int,
+        default=DEFAULT_HISTORY_WINDOW_MESSAGES,
+        help="Number of most recent messages to send verbatim before summarizing older context.",
+    )
+    parser.add_argument(
+        "--history-summary-max-chars",
+        type=int,
+        default=DEFAULT_HISTORY_SUMMARY_MAX_CHARS,
+        help="Character budget for compressed summary of older context.",
+    )
+    parser.add_argument(
         "--stream",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -554,6 +654,19 @@ def parse_args() -> argparse.Namespace:
         help="Allow this script to write globalInfo.json. Disabled by default for single-writer mode.",
     )
     return parser.parse_args()
+
+
+def parse_available_models(raw: str) -> list[str]:
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    deduped: list[str] = []
+    for part in raw.split(","):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        if candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def main() -> int:
@@ -595,8 +708,28 @@ def main() -> int:
     ):
         model_name = DEFAULT_MODEL
 
+    max_tokens = args.max_tokens if isinstance(args.max_tokens, int) and args.max_tokens > 0 else None
+    available_models = parse_available_models(args.available_models)
+    if available_models and model_name not in available_models:
+        model_name = available_models[0]
+
+    history_window_messages = (
+        args.history_window_messages
+        if isinstance(args.history_window_messages, int) and args.history_window_messages > 0
+        else DEFAULT_HISTORY_WINDOW_MESSAGES
+    )
+    history_summary_max_chars = (
+        args.history_summary_max_chars
+        if isinstance(args.history_summary_max_chars, int) and args.history_summary_max_chars > 0
+        else DEFAULT_HISTORY_SUMMARY_MAX_CHARS
+    )
+
     api_base_url = os.getenv("DEDALUS_API_BASE_URL", DEFAULT_API_BASE_URL).strip() or DEFAULT_API_BASE_URL
-    api_messages = normalize_messages_for_api(conversation_bundle)
+    api_messages = normalize_messages_for_api(
+        conversation_bundle,
+        history_window_messages=history_window_messages,
+        history_summary_max_chars=history_summary_max_chars,
+    )
     ensure_latest_user_message(api_messages, user_message)
 
     try:
@@ -606,6 +739,8 @@ def main() -> int:
             model=model_name,
             messages=api_messages,
             stream=bool(args.stream),
+            max_tokens=max_tokens,
+            available_models=available_models,
         )
     except Exception as error:  # broad by design for CLI error surface
         if args.update_global_info:

@@ -33,7 +33,31 @@ interface ConversationLockQueue {
   tail: Promise<void>
 }
 
+type RoutingTier = "light" | "tooling" | "heavy"
+
+interface CarbonRoutingSettings {
+  routingSensitivity: number
+  historyCompression: number
+}
+
+interface RoutingDecision {
+  tier: RoutingTier
+  model: string
+  heavyModel: string
+  maxTokens: number
+  historyWindowMessages: number
+  historySummaryMaxChars: number
+  availableModels: string[]
+  allowEscalation: boolean
+}
+
+interface CachedToolContext {
+  value: string
+  expiresAt: number
+}
+
 const conversationLockQueues = new Map<string, ConversationLockQueue>()
+const toolContextCache = new Map<string, CachedToolContext>()
 
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 const RELIABLE_FALLBACK_MODEL = "openai/gpt-5-mini"
@@ -78,6 +102,23 @@ const ALLOWED_MODELS = new Set<string>([...CHAT_MODELS, ...IMAGE_MODELS])
 
 const STREAM_DELTA_DELAY_MS = 10
 const STREAM_TOKENS_PER_FLUSH = 2
+const LIGHT_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_LIGHT?.trim() || "openai/gpt-5-nano"
+const TOOLING_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_TOOLING?.trim() || "openai/gpt-5-mini"
+const HEAVY_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_HEAVY?.trim() || DEFAULT_MODEL
+const LIGHT_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_LIGHT ?? 900)
+const TOOLING_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_TOOLING ?? 1400)
+const HEAVY_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_HEAVY ?? 2600)
+const TOOL_CONTEXT_CACHE_TTL_MS = Number(process.env.CHAT_TOOL_CACHE_TTL_MS ?? 3 * 60 * 1000)
+
+const MIN_HISTORY_WINDOW_MESSAGES = 6
+const MAX_HISTORY_WINDOW_MESSAGES = 24
+const MIN_HISTORY_SUMMARY_CHARS = 900
+const MAX_HISTORY_SUMMARY_CHARS = 4200
+
+const DEFAULT_CARBON_SETTINGS: CarbonRoutingSettings = {
+  routingSensitivity: 55,
+  historyCompression: 50,
+}
 
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
@@ -109,6 +150,217 @@ function sanitizeRequestedImageModel(value: unknown): string | null {
   }
 
   return IMAGE_MODELS.has(trimmed) ? trimmed : null
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min
+  }
+  const rounded = Math.round(value)
+  if (rounded < min) return min
+  if (rounded > max) return max
+  return rounded
+}
+
+function sanitizeCarbonRoutingSettings(raw: unknown): CarbonRoutingSettings {
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_CARBON_SETTINGS
+  }
+
+  const record = raw as Record<string, unknown>
+  const routingSensitivity =
+    typeof record.routingSensitivity === "number"
+      ? clampInt(record.routingSensitivity, 0, 100)
+      : DEFAULT_CARBON_SETTINGS.routingSensitivity
+  const historyCompression =
+    typeof record.historyCompression === "number"
+      ? clampInt(record.historyCompression, 0, 100)
+      : DEFAULT_CARBON_SETTINGS.historyCompression
+
+  return {
+    routingSensitivity,
+    historyCompression,
+  }
+}
+
+function getProviderFromModelName(modelName: string): "anthropic" | "openai" | "google" | "other" {
+  if (modelName.startsWith("anthropic/")) return "anthropic"
+  if (modelName.startsWith("openai/")) return "openai"
+  if (modelName.startsWith("google/")) return "google"
+  return "other"
+}
+
+function pickTierModels(selectedModel: string): { light: string; tooling: string; heavy: string } {
+  const provider = getProviderFromModelName(selectedModel)
+  if (provider === "anthropic") {
+    return {
+      light: "anthropic/claude-haiku-4-5",
+      tooling: "anthropic/claude-sonnet-4-5",
+      heavy: CHAT_MODELS.has(selectedModel) ? selectedModel : "anthropic/claude-opus-4-5",
+    }
+  }
+
+  if (provider === "google") {
+    return {
+      light: "google/gemini-2.5-flash-lite",
+      tooling: "google/gemini-2.5-flash",
+      heavy: CHAT_MODELS.has(selectedModel) ? selectedModel : "google/gemini-2.5-pro",
+    }
+  }
+
+  if (provider === "openai") {
+    return {
+      light: "openai/gpt-5-nano",
+      tooling: "openai/gpt-5-mini",
+      heavy: CHAT_MODELS.has(selectedModel) ? selectedModel : "openai/gpt-5",
+    }
+  }
+
+  const fallbackHeavy = CHAT_MODELS.has(selectedModel) ? selectedModel : HEAVY_TIER_MODEL_DEFAULT
+  return {
+    light: LIGHT_TIER_MODEL_DEFAULT,
+    tooling: TOOLING_TIER_MODEL_DEFAULT,
+    heavy: fallbackHeavy,
+  }
+}
+
+function scorePromptComplexity(prompt: string): number {
+  const normalized = prompt.trim().toLowerCase()
+  if (!normalized) {
+    return 0
+  }
+
+  const charCount = normalized.length
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length
+  const newlineCount = (normalized.match(/\n/g) || []).length
+  const questionCount = (normalized.match(/\?/g) || []).length
+
+  let score = 0
+  if (charCount > 220) score += 1
+  if (charCount > 520) score += 1
+  if (charCount > 1000) score += 1
+  if (wordCount > 55) score += 1
+  if (wordCount > 120) score += 1
+  if (newlineCount >= 4) score += 1
+  if (questionCount >= 2) score += 1
+  if (/(analy[sz]e|compare|trade[ -]?off|step[- ]by[- ]step|plan|strategy|ambiguous|deep dive)/.test(normalized)) {
+    score += 2
+  }
+  if (/(debug|root cause|architecture|design|optimi[sz]e|refactor|benchmark|algorithm)/.test(normalized)) {
+    score += 2
+  }
+
+  return score
+}
+
+function computeHistoryCompression(
+  tier: RoutingTier,
+  historyCompression: number,
+): { historyWindowMessages: number; historySummaryMaxChars: number } {
+  const compression = clampInt(historyCompression, 0, 100)
+  const baseWindow =
+    MAX_HISTORY_WINDOW_MESSAGES -
+    Math.round(((MAX_HISTORY_WINDOW_MESSAGES - MIN_HISTORY_WINDOW_MESSAGES) * compression) / 100)
+  const baseSummaryChars =
+    MAX_HISTORY_SUMMARY_CHARS -
+    Math.round(((MAX_HISTORY_SUMMARY_CHARS - MIN_HISTORY_SUMMARY_CHARS) * compression) / 100)
+
+  if (tier === "light") {
+    return {
+      historyWindowMessages: clampInt(baseWindow - 2, MIN_HISTORY_WINDOW_MESSAGES, MAX_HISTORY_WINDOW_MESSAGES),
+      historySummaryMaxChars: clampInt(
+        baseSummaryChars - 350,
+        MIN_HISTORY_SUMMARY_CHARS,
+        MAX_HISTORY_SUMMARY_CHARS,
+      ),
+    }
+  }
+
+  if (tier === "heavy") {
+    return {
+      historyWindowMessages: clampInt(baseWindow + 3, MIN_HISTORY_WINDOW_MESSAGES, MAX_HISTORY_WINDOW_MESSAGES),
+      historySummaryMaxChars: clampInt(
+        baseSummaryChars + 550,
+        MIN_HISTORY_SUMMARY_CHARS,
+        MAX_HISTORY_SUMMARY_CHARS,
+      ),
+    }
+  }
+
+  return {
+    historyWindowMessages: clampInt(baseWindow, MIN_HISTORY_WINDOW_MESSAGES, MAX_HISTORY_WINDOW_MESSAGES),
+    historySummaryMaxChars: clampInt(baseSummaryChars, MIN_HISTORY_SUMMARY_CHARS, MAX_HISTORY_SUMMARY_CHARS),
+  }
+}
+
+function buildRoutingDecision(params: {
+  latestUserMessage: string
+  selectedModel: string
+  toolsEnabled: boolean
+  settings: CarbonRoutingSettings
+}): RoutingDecision {
+  const { latestUserMessage, selectedModel, toolsEnabled, settings } = params
+  const tierModels = pickTierModels(selectedModel)
+  const complexity = scorePromptComplexity(latestUserMessage)
+  const complexityThreshold = clampInt(
+    7 - Math.floor(clampInt(settings.routingSensitivity, 0, 100) / 25),
+    3,
+    7,
+  )
+
+  const tier: RoutingTier = toolsEnabled
+    ? "tooling"
+    : complexity >= complexityThreshold
+      ? "heavy"
+      : "light"
+
+  const model =
+    tier === "tooling" ? tierModels.tooling : tier === "heavy" ? tierModels.heavy : tierModels.light
+  const heavyModel = tierModels.heavy
+  const allowEscalation = tier === "light" && heavyModel !== model
+  const maxTokens =
+    tier === "tooling"
+      ? clampInt(TOOLING_TIER_MAX_TOKENS, 400, 8000)
+      : tier === "heavy"
+        ? clampInt(HEAVY_TIER_MAX_TOKENS, 400, 8000)
+        : clampInt(LIGHT_TIER_MAX_TOKENS, 400, 8000)
+  const history = computeHistoryCompression(tier, settings.historyCompression)
+  const availableModels = Array.from(new Set([tierModels.light, tierModels.tooling, tierModels.heavy])).filter(
+    (modelName) => CHAT_MODELS.has(modelName),
+  )
+
+  return {
+    tier,
+    model,
+    heavyModel,
+    maxTokens,
+    historyWindowMessages: history.historyWindowMessages,
+    historySummaryMaxChars: history.historySummaryMaxChars,
+    availableModels,
+    allowEscalation,
+  }
+}
+
+function getCachedToolContext(cacheKey: string): string | null {
+  const cached = toolContextCache.get(cacheKey)
+  if (!cached) {
+    return null
+  }
+  if (cached.expiresAt <= Date.now()) {
+    toolContextCache.delete(cacheKey)
+    return null
+  }
+  return cached.value
+}
+
+function setCachedToolContext(cacheKey: string, value: string): void {
+  const ttl = Number.isFinite(TOOL_CONTEXT_CACHE_TTL_MS)
+    ? Math.max(30_000, TOOL_CONTEXT_CACHE_TTL_MS)
+    : 3 * 60 * 1000
+  toolContextCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + ttl,
+  })
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -473,6 +725,8 @@ interface BuildMcpSearchContextOptions {
   workerPrompt: string
   failurePrefix: string
   noResultsText: string
+  toolChoiceRequired?: boolean
+  availableModels?: string[]
 }
 
 async function buildMcpSearchContext(options: BuildMcpSearchContextOptions): Promise<string> {
@@ -485,11 +739,35 @@ async function buildMcpSearchContext(options: BuildMcpSearchContextOptions): Pro
     workerPrompt,
     failurePrefix,
     noResultsText,
+    toolChoiceRequired = true,
+    availableModels,
   } = options
   const apiBaseUrl = process.env.DEDALUS_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
   const userAgent =
     process.env.DEDALUS_USER_AGENT?.trim() ||
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+  const requestBody: Record<string, unknown> = {
+    model,
+    stream: false,
+    mcp_servers: [mcpServer],
+    messages: [
+      {
+        role: "system",
+        content: workerPrompt,
+      },
+      {
+        role: "user",
+        content: `Find up-to-date web information for this query and summarize it:\n${userQuery}`,
+      },
+    ],
+  }
+  if (toolChoiceRequired) {
+    requestBody.tool_choice = "required"
+  }
+  if (Array.isArray(availableModels) && availableModels.length > 0) {
+    requestBody.available_models = availableModels
+  }
 
   const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
@@ -499,21 +777,7 @@ async function buildMcpSearchContext(options: BuildMcpSearchContextOptions): Pro
       Accept: "application/json",
       "User-Agent": userAgent,
     },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      mcp_servers: [mcpServer],
-      messages: [
-        {
-          role: "system",
-          content: workerPrompt,
-        },
-        {
-          role: "user",
-          content: `Find up-to-date web information for this query and summarize it:\n${userQuery}`,
-        },
-      ],
-    }),
+    body: JSON.stringify(requestBody),
     signal: abortSignal,
   })
 
@@ -550,6 +814,8 @@ async function buildWebSearchContext(
       "You are a web research worker. Use available MCP tools to search and extract web content before answering. Return concise bullet points and include source URLs. If no useful results are found, return exactly NO_RESULTS.",
     failurePrefix: "Web search context",
     noResultsText: "Web search returned no useful results.",
+    toolChoiceRequired: true,
+    availableModels: [WEB_SEARCH_MODEL],
   })
 }
 
@@ -568,6 +834,8 @@ async function buildDeepSearchContext(
       "You are a deep research worker. Use available MCP tools to run broad and follow-up searches, extract key evidence, and return concise bullets with source URLs. If no useful results are found, return exactly NO_RESULTS.",
     failurePrefix: "Deep search context",
     noResultsText: "Deep search returned no useful results.",
+    toolChoiceRequired: true,
+    availableModels: [DEEP_SEARCH_MODEL],
   })
 }
 
@@ -849,6 +1117,12 @@ async function streamFromAskQuestionScript(
   onToken: (token: string) => void,
   selectedModel: string,
   useStreaming: boolean,
+  options?: {
+    maxTokens?: number
+    availableModels?: string[]
+    historyWindowMessages?: number
+    historySummaryMaxChars?: number
+  },
 ): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
   const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
@@ -875,6 +1149,26 @@ async function streamFromAskQuestionScript(
     "--model",
     selectedModel,
   ]
+  if (options?.maxTokens && Number.isFinite(options.maxTokens) && options.maxTokens > 0) {
+    args.push("--max-tokens", String(Math.floor(options.maxTokens)))
+  }
+  if (Array.isArray(options?.availableModels) && options.availableModels.length > 0) {
+    args.push("--available-models", options.availableModels.join(","))
+  }
+  if (
+    options?.historyWindowMessages &&
+    Number.isFinite(options.historyWindowMessages) &&
+    options.historyWindowMessages > 0
+  ) {
+    args.push("--history-window-messages", String(Math.floor(options.historyWindowMessages)))
+  }
+  if (
+    options?.historySummaryMaxChars &&
+    Number.isFinite(options.historySummaryMaxChars) &&
+    options.historySummaryMaxChars > 0
+  ) {
+    args.push("--history-summary-max-chars", String(Math.floor(options.historySummaryMaxChars)))
+  }
 
   return await new Promise((resolve, reject) => {
     const child = spawn("python3", args, {
@@ -1006,17 +1300,17 @@ function isRetryableDedalusServerError(error: unknown): boolean {
   )
 }
 
-function getModelFailoverChain(preferredModel: string): string[] {
-  if (!ENABLE_MODEL_FAILOVER) {
-    if (CHAT_MODELS.has(preferredModel)) {
-      return [preferredModel]
-    }
-    return [DEFAULT_MODEL]
+function getModelExecutionChain(routingDecision: RoutingDecision): string[] {
+  const candidates: string[] = [routingDecision.model]
+  if (routingDecision.allowEscalation && routingDecision.heavyModel !== routingDecision.model) {
+    candidates.push(routingDecision.heavyModel)
   }
 
-  const candidates = [preferredModel, RELIABLE_FALLBACK_MODEL, DEFAULT_MODEL]
-  const deduped: string[] = []
+  if (ENABLE_MODEL_FAILOVER && candidates.length < 2 && CHAT_MODELS.has(RELIABLE_FALLBACK_MODEL)) {
+    candidates.push(RELIABLE_FALLBACK_MODEL)
+  }
 
+  const deduped: string[] = []
   for (const candidate of candidates) {
     if (!CHAT_MODELS.has(candidate)) {
       continue
@@ -1024,6 +1318,13 @@ function getModelFailoverChain(preferredModel: string): string[] {
     if (!deduped.includes(candidate)) {
       deduped.push(candidate)
     }
+    if (deduped.length >= 2) {
+      break
+    }
+  }
+
+  if (deduped.length === 0) {
+    return [DEFAULT_MODEL]
   }
 
   return deduped
@@ -1058,6 +1359,7 @@ export async function POST(req: Request) {
       imageGenerationEnabled?: unknown
       imageModel?: unknown
       attachments?: unknown
+      carbonSettings?: unknown
     }
     const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
     const webSearchEnabled = requestBody.webSearchEnabled === true
@@ -1090,6 +1392,7 @@ export async function POST(req: Request) {
       requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
     const selectedImageModel =
       requestedImageModel || (isImageModel(selectedModel) ? selectedModel : DEFAULT_IMAGE_MODEL)
+    const carbonSettings = sanitizeCarbonRoutingSettings(requestBody.carbonSettings)
 
     releaseConversationLock = await acquireConversationLock(sanitizedRequestedConversationId)
 
@@ -1131,6 +1434,15 @@ export async function POST(req: Request) {
       return Response.json({ error: "No valid OCR attachments were found in the request." }, { status: 400 })
     }
 
+    const toolsEnabledForRouting =
+      webSearchEnabled || deepSearchEnabled || uploadedOcrAttachments.length > 0
+    const routingDecision = buildRoutingDecision({
+      latestUserMessage,
+      selectedModel,
+      toolsEnabled: toolsEnabledForRouting,
+      settings: carbonSettings,
+    })
+
     let promptForModel = latestUserMessage
     if (uploadedOcrAttachments.length > 0) {
       try {
@@ -1152,8 +1464,15 @@ export async function POST(req: Request) {
     }
 
     if (webSearchEnabled) {
+      const webCacheKey = `web:${latestUserMessage.trim().toLowerCase()}`
       try {
-        const webContext = await buildWebSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+        let webContext = getCachedToolContext(webCacheKey)
+        if (!webContext) {
+          webContext = await buildWebSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+          if (webContext.trim()) {
+            setCachedToolContext(webCacheKey, webContext)
+          }
+        }
         if (webContext.trim()) {
           promptForModel = `${promptForModel}\n\n<web_search_context>\n${webContext}\n</web_search_context>`
         }
@@ -1168,8 +1487,15 @@ export async function POST(req: Request) {
     }
 
     if (deepSearchEnabled) {
+      const deepSearchCacheKey = `deep:${latestUserMessage.trim().toLowerCase()}`
       try {
-        const deepSearchContext = await buildDeepSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+        let deepSearchContext = getCachedToolContext(deepSearchCacheKey)
+        if (!deepSearchContext) {
+          deepSearchContext = await buildDeepSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+          if (deepSearchContext.trim()) {
+            setCachedToolContext(deepSearchCacheKey, deepSearchContext)
+          }
+        }
         if (deepSearchContext.trim()) {
           promptForModel = `${promptForModel}\n\n<deep_search_context>\n${deepSearchContext}\n</deep_search_context>`
         }
@@ -1262,7 +1588,7 @@ export async function POST(req: Request) {
         const drainPromise = drainTokens()
         let assistantText = ""
         let streamCompleted = false
-        let modelUsedForResponse = selectedModel
+        let modelUsedForResponse = routingDecision.model
 
         writer.write({ type: "start", messageId })
         writer.write({ type: "start-step" })
@@ -1279,10 +1605,16 @@ export async function POST(req: Request) {
 
           let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
           let lastModelError: unknown = null
-          const modelCandidates = getModelFailoverChain(selectedModel)
+          const modelCandidates = getModelExecutionChain(routingDecision)
+          const scriptOptions = {
+            maxTokens: routingDecision.maxTokens,
+            availableModels: routingDecision.availableModels,
+            historyWindowMessages: routingDecision.historyWindowMessages,
+            historySummaryMaxChars: routingDecision.historySummaryMaxChars,
+          }
 
           for (const candidateModel of modelCandidates) {
-            const maxAttempts = ENABLE_MODEL_FAILOVER ? 2 : 1
+            const maxAttempts = ENABLE_MODEL_FAILOVER && candidateModel === modelCandidates[0] ? 2 : 1
 
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
               try {
@@ -1297,6 +1629,7 @@ export async function POST(req: Request) {
                     },
                     candidateModel,
                     true,
+                    scriptOptions,
                   )
                 } catch (error) {
                   if (!shouldRetryWithoutScriptStreaming(error)) {
@@ -1319,6 +1652,7 @@ export async function POST(req: Request) {
                     },
                     candidateModel,
                     false,
+                    scriptOptions,
                   )
                 }
 
@@ -1374,7 +1708,10 @@ export async function POST(req: Request) {
 
           if (streamCompleted && assistantText.trim()) {
             try {
-              if (modelUsedForResponse !== selectedModel) {
+              if (
+                modelUsedForResponse !== routingDecision.model &&
+                modelUsedForResponse !== selectedModel
+              ) {
                 await persistPromptSnapshot(conversationId, messages, {
                   allowCreate: false,
                   modelName: modelUsedForResponse,
