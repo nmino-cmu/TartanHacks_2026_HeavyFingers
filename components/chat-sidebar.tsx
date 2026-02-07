@@ -3,7 +3,7 @@
 import React from "react"
 
 import type { UIMessage } from "ai"
-import { Button } from "@/components/ui/button"
+import { Button } from "./ui/button"
 
 type Conversation = {
   id: string
