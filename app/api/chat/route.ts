@@ -39,14 +39,7 @@ const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
     40,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "12", 10) || 0,
-  ),
-)
-const STREAM_DELTA_CHARS = Math.max(
-  1,
-  Math.min(
-    8,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_CHARS?.trim() || "1", 10) || 1,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "0", 10) || 0,
   ),
 )
 
@@ -525,14 +518,8 @@ export async function POST(req: Request) {
               continue
             }
 
-            const characters = Array.from(nextToken)
-            for (let index = 0; index < characters.length; index += STREAM_DELTA_CHARS) {
-              const delta = characters.slice(index, index + STREAM_DELTA_CHARS).join("")
-              if (!delta) {
-                continue
-              }
-
-              writer.write({ type: "text-delta", id: textPartId, delta })
+            writer.write({ type: "text-delta", id: textPartId, delta: nextToken })
+            if (STREAM_DELTA_DELAY_MS > 0 && pendingTokens.length > 0) {
               await waitFor(STREAM_DELTA_DELAY_MS, req.signal)
             }
           }
