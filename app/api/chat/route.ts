@@ -194,6 +194,7 @@ async function streamFromAskQuestionScript(
     conversationJsonPath,
     "--global-json-path",
     globalJsonPath,
+    "--no-update-global-info",
     "--stream",
   ]
   const modelOverride = process.env.DEDALUS_MODEL?.trim()

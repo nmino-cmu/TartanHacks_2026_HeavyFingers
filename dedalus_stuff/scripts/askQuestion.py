@@ -546,6 +546,12 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Enable streaming token output.",
     )
+    parser.add_argument(
+        "--update-global-info",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow this script to write globalInfo.json. Disabled by default for single-writer mode.",
+    )
     return parser.parse_args()
 
 
@@ -601,6 +607,31 @@ def main() -> int:
             stream=bool(args.stream),
         )
     except Exception as error:  # broad by design for CLI error surface
+        if args.update_global_info:
+            try:
+                update_global_info_json(
+                    global_json_path=global_json_path,
+                    conversation_id=conversation_id,
+                    conversation_json_path=conversation_json_path,
+                    conversation_name=str(
+                        conversation_bundle["conversation"].get("name", "")
+                    ).strip(),
+                    model_name=model_name,
+                    user_message=user_message,
+                    assistant_text=None,
+                    finish_reason="error",
+                    error_message=str(error),
+                )
+            except Exception:
+                pass
+        emit("error", message=str(error))
+        return 1
+
+    if not assistant_text or not assistant_text.strip():
+        emit("error", message="Dedalus returned an empty assistant response.")
+        return 1
+
+    if args.update_global_info:
         try:
             update_global_info_json(
                 global_json_path=global_json_path,
@@ -611,35 +642,12 @@ def main() -> int:
                 ).strip(),
                 model_name=model_name,
                 user_message=user_message,
-                assistant_text=None,
-                finish_reason="error",
-                error_message=str(error),
+                assistant_text=assistant_text,
+                finish_reason=finish_reason,
             )
-        except Exception:
-            pass
-        emit("error", message=str(error))
-        return 1
-
-    if not assistant_text or not assistant_text.strip():
-        emit("error", message="Dedalus returned an empty assistant response.")
-        return 1
-
-    try:
-        update_global_info_json(
-            global_json_path=global_json_path,
-            conversation_id=conversation_id,
-            conversation_json_path=conversation_json_path,
-            conversation_name=str(
-                conversation_bundle["conversation"].get("name", "")
-            ).strip(),
-            model_name=model_name,
-            user_message=user_message,
-            assistant_text=assistant_text,
-            finish_reason=finish_reason,
-        )
-    except Exception as error:
-        emit("error", message=f"Failed to update global info json: {error}")
-        return 1
+        except Exception as error:
+            emit("error", message=f"Failed to update global info json: {error}")
+            return 1
 
     emit("final", text=assistant_text, finish_reason=finish_reason)
     return 0
