@@ -20,6 +20,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -29,6 +36,7 @@ import {
   ArrowRight,
   CircleDollarSign,
   DownloadCloud,
+  HeartHandshake,
   Leaf,
   KeyRound,
   RefreshCw,
@@ -56,6 +64,12 @@ type ApiResponse =
   | { status: "error"; error: string }
 
 const DEFAULT_DESTINATION = "rLjd5uRaxpi84pcn9ikbiMWPGqYfLrh15w" // Every.org testnet address
+const CHARITIES = [
+  { id: "earthday.org", label: "Earthday.org (EIN 133798288)" },
+  { id: "GivePact", label: "GivePact (EIN 920504087)" },
+  { id: "Environmental Defense Fund", label: "Environmental Defense Fund (EIN 116107128)" },
+  { id: "custom", label: "Custom address" },
+]
 
 function formatBalance(drops?: string) {
   if (!drops) return "—"
@@ -67,12 +81,18 @@ function formatBalance(drops?: string) {
 export default function WalletPage() {
   const [wallet, setWallet] = useState<WalletData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [busy, setBusy] = useState<"create" | "refresh" | "send" | "import" | null>(null)
+  const [busy, setBusy] = useState<"create" | "refresh" | "send" | "import" | "charity" | null>(null)
   const [seedVisible, setSeedVisible] = useState(false)
   const [amount, setAmount] = useState("10")
   const [destination, setDestination] = useState(DEFAULT_DESTINATION)
+  const [destinationMode, setDestinationMode] = useState<"test" | "real">("test")
+  const [destinationTest, setDestinationTest] = useState(DEFAULT_DESTINATION)
+  const [destinationReal, setDestinationReal] = useState("")
   const [importSeed, setImportSeed] = useState("")
   const [confirmCreateOpen, setConfirmCreateOpen] = useState(false)
+  const [selectedCharity, setSelectedCharity] = useState<"custom" | string>("custom")
+  const [donorName, setDonorName] = useState("")
+  const [donorEmail, setDonorEmail] = useState("")
 
   const hasWallet = Boolean(wallet?.address)
 
@@ -135,6 +155,10 @@ export default function WalletPage() {
       toast({ title: "Create a wallet first", variant: "destructive" })
       return
     }
+    if (!destination.trim()) {
+      toast({ title: "Add a destination", description: "Choose a charity or enter a wallet address.", variant: "destructive" })
+      return
+    }
     setBusy("send")
     const response = await request("POST", {
       action: "send-check",
@@ -148,6 +172,38 @@ export default function WalletPage() {
       })
     } else {
       toast({ title: "Send failed", description: response.error, variant: "destructive" })
+    }
+    setBusy(null)
+  }
+
+  async function handleSelectCharity(value: string) {
+    setSelectedCharity(value as "custom" | string)
+    if (value === "custom") {
+      setDestination("")
+      return
+    }
+
+    setBusy("charity")
+    try {
+      const res = await fetch("/api/charity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          charity: value,
+          name: donorName || undefined,
+          email: donorEmail || undefined,
+        }),
+      })
+      const payload = await res.json()
+      if (payload.status === "ok" && payload.data?.address) {
+        setDestination(payload.data.address)
+        toast({ title: "Charity selected", description: "Destination address filled automatically." })
+      } else {
+        throw new Error(payload.error || "Unable to fetch address")
+      }
+    } catch (error: any) {
+      toast({ title: "Could not load charity address", description: error?.message ?? "Unknown error", variant: "destructive" })
+      setSelectedCharity("custom")
     }
     setBusy(null)
   }
@@ -383,6 +439,113 @@ export default function WalletPage() {
             <CardContent>
               <form className="space-y-4" onSubmit={handleSendCheck}>
                 <div className="space-y-2">
+                  <Label htmlFor="charity" className="flex items-center gap-2 text-sm">
+                    <HeartHandshake className="h-4 w-4 text-emerald-700" />
+                    Charity (via GivePact)
+                  </Label>
+                  <Select value={selectedCharity} onValueChange={handleSelectCharity}>
+                    <SelectTrigger id="charity" disabled={busy === "charity"}>
+                      <SelectValue placeholder="Choose where to donate" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHARITIES.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    We request a fresh deposit address for the chosen nonprofit. Pick “Custom address” to paste your own.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="donor-name" className="text-sm">
+                      Donor name (optional)
+                    </Label>
+                    <Input
+                      id="donor-name"
+                      value={donorName}
+                      onChange={(e) => setDonorName(e.target.value)}
+                      placeholder="XRPL Donor"
+                      autoComplete="name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="donor-email" className="text-sm">
+                      Donor email (optional)
+                    </Label>
+                    <Input
+                      id="donor-email"
+                      type="email"
+                      value={donorEmail}
+                      onChange={(e) => setDonorEmail(e.target.value)}
+                      placeholder="donor@example.com"
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="destination-mode" className="text-sm">
+                    Destination type
+                  </Label>
+                  <Select
+                    value={destinationMode}
+                    onValueChange={(v) => {
+                      const mode = v as "test" | "real"
+                      setDestinationMode(mode)
+                      setSelectedCharity("custom")
+                      setDestination(mode === "test" ? destinationTest : destinationReal)
+                    }}
+                  >
+                    <SelectTrigger id="destination-mode">
+                      <SelectValue placeholder="Choose where to send" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="test">Testnet wallet (default)</SelectItem>
+                      <SelectItem value="real">Mainnet wallet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Keep both addresses handy and flip between them. Selecting a charity will still auto-fill a fresh address, but you can switch back here any time.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="destination-test" className="text-sm">
+                      Test wallet address
+                    </Label>
+                    <Input
+                      id="destination-test"
+                      value={destinationTest}
+                      onChange={(e) => {
+                        setDestinationTest(e.target.value)
+                        setSelectedCharity("custom")
+                        if (destinationMode === "test") setDestination(e.target.value)
+                      }}
+                      placeholder="rTEST... (XRPL testnet)"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="destination-real" className="text-sm">
+                      Real wallet address
+                    </Label>
+                    <Input
+                      id="destination-real"
+                      value={destinationReal}
+                      onChange={(e) => {
+                        setDestinationReal(e.target.value)
+                        setSelectedCharity("custom")
+                        if (destinationMode === "real") setDestination(e.target.value)
+                      }}
+                      placeholder="rMAIN... (XRPL mainnet)"
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="amount" className="flex items-center gap-2 text-sm">
                     <CircleDollarSign className="h-4 w-4 text-emerald-700" />
                     Amount (XRP)
@@ -400,17 +563,25 @@ export default function WalletPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="destination" className="text-sm">
-                    Destination address
+                    Active destination (used for this check)
                   </Label>
                   <Input
                     id="destination"
                     value={destination}
-                    onChange={(e) => setDestination(e.target.value)}
-                    required
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setSelectedCharity("custom")
+                      setDestination(value)
+                      if (destinationMode === "test") {
+                        setDestinationTest(value)
+                      } else {
+                        setDestinationReal(value)
+                      }
+                    }}
                     spellCheck={false}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Pre-filled with Every.org&apos;s donation address. You can use any XRPL testnet account.
+                    Determined by the charity picker or your selected slot above; you can also edit it directly.
                   </p>
                 </div>
                 <Separator />
@@ -418,7 +589,7 @@ export default function WalletPage() {
                   <div className="text-sm text-muted-foreground">
                     Uses your locally stored seed to sign the check.
                   </div>
-                  <Button type="submit" disabled={busy === "send"} className="gap-2">
+                  <Button type="submit" disabled={busy === "send" || busy === "charity"} className="gap-2">
                     <ArrowRight className="h-4 w-4" />
                     Create Check
                   </Button>
