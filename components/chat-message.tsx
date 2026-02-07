@@ -1,14 +1,7 @@
 "use client"
 
 import type { UIMessage } from "ai"
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { useEffect, useRef, useState } from "react"
-=======
->>>>>>> add_library
-=======
-import { useEffect, useRef, useState } from "react"
->>>>>>> mcericola
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
@@ -65,7 +58,6 @@ function CopyIcon({ className }: { className?: string }) {
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   )
-<<<<<<< HEAD
 }
 
 function CheckIcon({ className }: { className?: string }) {
@@ -173,175 +165,6 @@ function toSpeakableText(value: string): string {
 interface ChatMessageProps {
   message: UIMessage
   isStreaming?: boolean
-<<<<<<< HEAD
-  attachments?: Array<{
-    id: string
-    name: string
-    size: number
-    type: string
-  }>
-}
-
-<<<<<<< HEAD
-function formatAttachmentSize(bytes: number, type?: string): string {
-  if (type === "text/uri-list" || bytes <= 0) {
-    return "URL"
-  }
-  if (!Number.isFinite(bytes) || bytes < 1024) {
-    return `${Math.max(0, Math.round(bytes || 0))} B`
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`
-  }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function FileIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
-      <path d="M14 2v5h5" />
-      <path d="M9 13h6" />
-      <path d="M9 17h6" />
-    </svg>
-  )
-}
-
-export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMessageProps) {
-  const isUser = message.role === "user"
-  const isStreamingAssistant = Boolean(isStreaming && !isUser)
-  const [copied, setCopied] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
-  const [isHoveringMessage, setIsHoveringMessage] = useState(false)
-  const copyTimerRef = useRef<number | null>(null)
-  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
-
-=======
-export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
-=======
-  highlightTerms?: string[]
-=======
->>>>>>> mcericola
-}
-
-function CheckIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m5 12 5 5L20 7" />
-    </svg>
-  )
-}
-
-function SpeakerIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <polygon points="11 5 6 9 3 9 3 15 6 15 11 19 11 5" />
-      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-      <path d="M18.5 6a9 9 0 0 1 0 12" />
-    </svg>
-  )
-}
-
-function StopIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="6" y="6" width="12" height="12" rx="1.5" />
-    </svg>
-  )
-}
-
-async function copyText(value: string): Promise<boolean> {
-  if (!value) {
-    return false
-  }
-
-  try {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-      return true
-    }
-  } catch {
-    // fall through to execCommand fallback
-  }
-
-  if (typeof document === "undefined") {
-    return false
-  }
-
-  const element = document.createElement("textarea")
-  element.value = value
-  element.setAttribute("readonly", "")
-  element.style.position = "fixed"
-  element.style.left = "-9999px"
-  document.body.appendChild(element)
-  element.select()
-
-  try {
-    const success = document.execCommand("copy")
-    document.body.removeChild(element)
-    return success
-  } catch {
-    document.body.removeChild(element)
-    return false
-  }
-}
-
-<<<<<<< HEAD
-export function ChatMessage({ message, isStreaming, highlightTerms }: ChatMessageProps) {
->>>>>>> mcericola
-=======
-function toSpeakableText(value: string): string {
-  return value
-    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```/g, "").trim())
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/[_~]/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-}
-
-interface ChatMessageProps {
-  message: UIMessage
-  isStreaming?: boolean
   attachments?: Array<{
     id: string
     name: string
@@ -384,7 +207,6 @@ function FileIcon({ className }: { className?: string }) {
 }
 
 export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMessageProps) {
->>>>>>> mcericola
   const isUser = message.role === "user"
   const isStreamingAssistant = Boolean(isStreaming && !isUser)
   const [copied, setCopied] = useState(false)
@@ -393,7 +215,6 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
   const copyTimerRef = useRef<number | null>(null)
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
->>>>>>> add_library
   const textFromParts = message.parts
     ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
@@ -402,70 +223,6 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
   const text =
     textFromParts ||
     (typeof messageWithContent.content === "string" ? messageWithContent.content : "")
-<<<<<<< HEAD
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current)
-      }
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel()
-      }
-    }
-  }, [])
-
-  const handleCopy = async () => {
-    const copiedSuccessfully = await copyText(text)
-    if (!copiedSuccessfully) {
-      return
-    }
-
-    setCopied(true)
-    if (copyTimerRef.current !== null) {
-      window.clearTimeout(copyTimerRef.current)
-    }
-    copyTimerRef.current = window.setTimeout(() => {
-      setCopied(false)
-    }, 1200)
-  }
-
-  const handleToggleReadAloud = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
-      return
-    }
-
-    const synth = window.speechSynthesis
-    if (isSpeaking) {
-      synth.cancel()
-      speechUtteranceRef.current = null
-      setIsSpeaking(false)
-      return
-    }
-
-    const speakableText = toSpeakableText(text)
-    if (!speakableText) {
-      return
-    }
-
-    synth.cancel()
-    const utterance = new SpeechSynthesisUtterance(speakableText)
-    speechUtteranceRef.current = utterance
-
-    utterance.onend = () => {
-      speechUtteranceRef.current = null
-      setIsSpeaking(false)
-    }
-    utterance.onerror = () => {
-      speechUtteranceRef.current = null
-      setIsSpeaking(false)
-    }
-
-    setIsSpeaking(true)
-    synth.speak(utterance)
-  }
-=======
->>>>>>> add_library
 
   useEffect(() => {
     return () => {
@@ -548,10 +305,6 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
         onMouseEnter={() => setIsHoveringMessage(true)}
         onMouseLeave={() => setIsHoveringMessage(false)}
       >
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
         <div className="relative">
           <div
             className={cn(
@@ -640,19 +393,6 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
               </button>
             </div>
           ) : null}
-<<<<<<< HEAD
-=======
-        <div className="space-y-2 break-words [&_*]:max-w-full [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3">
-          {isStreamingAssistant ? (
-            <div className="whitespace-pre-wrap">{text || ""}</div>
-          ) : (
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={rehypePlugins}>
-              {text || ""}
-            </ReactMarkdown>
-          )}
->>>>>>> add_library
-=======
->>>>>>> mcericola
         </div>
       </div>
       {isUser && (

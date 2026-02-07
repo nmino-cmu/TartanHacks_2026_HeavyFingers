@@ -32,7 +32,6 @@ DEFAULT_SYSTEM_PROMPT = (
     "You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.\n"
     "Always be concise yet thorough. Use markdown formatting when it helps clarity. \n"
     "Your capabilities include normal chat functions, and parsing 200<mb pdfs of pure text. \n"
-    "Always be concise yet thorough. Use markdown formatting when it helps clarity."
 )
 DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"

@@ -7,14 +7,7 @@ import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
 import { ChatInput, type PendingAttachment } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { toast } from "@/hooks/use-toast"
-=======
->>>>>>> add_library
-=======
-import { toast } from "@/hooks/use-toast"
->>>>>>> mcericola
 import {
   Dialog,
   DialogContent,
@@ -24,8 +17,6 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { useTheme } from "next-themes"
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
@@ -55,78 +46,6 @@ const SUPPORTED_OCR_MIME_TYPES = new Set([
   "image/jpeg",
   "image/webp",
 ])
-=======
-=======
-import { useTheme } from "next-themes"
->>>>>>> mcericola
-
-const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
-const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1"
-const CHAT_MODELS = new Set<string>([
-  "anthropic/claude-opus-4-5",
-  "anthropic/claude-sonnet-4-5",
-  "anthropic/claude-haiku-4-5",
-  "openai/gpt-5",
-  "openai/gpt-5-mini",
-  "openai/gpt-5-nano",
-  "google/gemini-2.5-pro",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash-lite",
-])
-const IMAGE_MODELS = new Set<string>(["openai/gpt-image-1", "openai/dall-e-3"])
-
-const CHARS_PER_TOKEN = 4
-const KG_PER_TOKEN = 0.0000005
-<<<<<<< HEAD
->>>>>>> add_library
-
-function extractMessageText(message: UIMessage): string {
-  const partsText =
-    message.parts
-      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("") || ""
-
-  if (partsText) return partsText
-
-  const withContent = message as UIMessage & { content?: unknown }
-  const { content } = withContent
-
-  if (typeof content === "string") {
-    return content
-  }
-
-  if (Array.isArray(content)) {
-    const textBlocks = content
-      .map((item) => {
-        if (typeof item === "string") return item
-        if (item && typeof item === "object" && "type" in item && "text" in (item as { type: unknown; text?: unknown })) {
-          const maybeText = (item as { text?: unknown }).text
-          if (typeof maybeText === "string") return maybeText
-        }
-        return ""
-      })
-      .filter(Boolean)
-      .join("")
-
-    if (textBlocks) {
-      return textBlocks
-    }
-  }
-
-  return ""
-}
-=======
-const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
-const MAX_OCR_ATTACHMENT_LABEL = "50 MB"
-const SUPPORTED_OCR_MIME_TYPES = new Set([
-  "application/pdf",
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-])
->>>>>>> mcericola
 
 interface CarbonRoutingSettings {
   routingSensitivity: number
@@ -155,10 +74,6 @@ interface ConversationsResponse {
   conversations: ConversationSummary[]
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
 interface MessageAttachment {
   id: string
   name: string
@@ -223,21 +138,12 @@ function getAttachmentNameFromUrl(url: string): string {
   return "linked-document"
 }
 
-<<<<<<< HEAD
-=======
->>>>>>> add_library
-=======
->>>>>>> mcericola
 function sanitizeModel(value?: string | null): string {
   if (!value) {
     return DEFAULT_MODEL
   }
 
   const trimmed = value.trim()
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
   return CHAT_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
 }
 
@@ -248,12 +154,6 @@ function sanitizeImageModel(value?: string | null): string {
 
   const trimmed = value.trim()
   return IMAGE_MODELS.has(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL
-<<<<<<< HEAD
-=======
-  return ALLOWED_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
->>>>>>> add_library
-=======
->>>>>>> mcericola
 }
 
 function clampSettingValue(value: number): number {
@@ -406,10 +306,6 @@ function XIcon({ className }: { className?: string }) {
   )
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
 function LeafIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -428,13 +324,6 @@ function LeafIcon({ className }: { className?: string }) {
   )
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> add_library
-=======
->>>>>>> mcericola
-=======
 function SettingsIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -453,7 +342,6 @@ function SettingsIcon({ className }: { className?: string }) {
   )
 }
 
->>>>>>> nmino
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -469,21 +357,11 @@ function formatConversationDate(isoValue: string): string {
 export function ChatContainer() {
   const [input, setInput] = useState("")
   const [model, setModel] = useState(DEFAULT_MODEL)
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
   const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
   const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
   const [carbonSettings, setCarbonSettings] = useState<CarbonRoutingSettings>(DEFAULT_CARBON_SETTINGS)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [themeMounted, setThemeMounted] = useState(false)
-<<<<<<< HEAD
-=======
-  const [dashboardOpen, setDashboardOpen] = useState(false)
->>>>>>> add_library
-=======
->>>>>>> mcericola
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isHydratingConversation, setIsHydratingConversation] = useState(true)
@@ -491,41 +369,15 @@ export function ChatContainer() {
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
   const [attachmentsByMessageId, setAttachmentsByMessageId] = useState<Record<string, MessageAttachment[]>>({})
-<<<<<<< HEAD
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
   const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
   const isMobile = useIsMobile()
   const { theme, setTheme } = useTheme()
-=======
-=======
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isSearching, setIsSearching] = useState(false)
-  const [searchStatus, setSearchStatus] = useState<string | null>(null)
-  const [scrollTargetMessageId, setScrollTargetMessageId] = useState<string | null>(null)
-  const [searchHighlightTerms, setSearchHighlightTerms] = useState<string[]>([])
-  const [searchCursor, setSearchCursor] = useState<{ conversationId: string | null; messageId: string | null } | null>(null)
->>>>>>> mcericola
-=======
->>>>>>> mcericola
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
-  const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
-  const isMobile = useIsMobile()
-<<<<<<< HEAD
->>>>>>> add_library
-=======
-  const { theme, setTheme } = useTheme()
->>>>>>> mcericola
 
   const transport = useMemo(
     () =>
@@ -544,14 +396,7 @@ export function ChatContainer() {
     isMutatingConversation ||
     status === "streaming" ||
     status === "submitted"
-<<<<<<< HEAD
-<<<<<<< HEAD
   const isDarkTheme = theme === "dark"
-=======
->>>>>>> add_library
-=======
-  const isDarkTheme = theme === "dark"
->>>>>>> mcericola
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
@@ -569,16 +414,6 @@ export function ChatContainer() {
   }, 0)
   const tokenEstimate = charCount / CHARS_PER_TOKEN
   const footprintKg = tokenEstimate * KG_PER_TOKEN
-<<<<<<< HEAD
-
-  const resetAttachmentUiState = useCallback(() => {
-    setPendingAttachments([])
-    setAttachmentsByMessageId({})
-    queuedAttachmentsRef.current = []
-    seenUserMessageIdsRef.current = new Set()
-  }, [])
-=======
->>>>>>> add_library
 
   const resetAttachmentUiState = useCallback(() => {
     setPendingAttachments([])
@@ -593,39 +428,8 @@ export function ChatContainer() {
   }, [messages, status])
 
   useEffect(() => {
-<<<<<<< HEAD
-    if (!scrollTargetMessageId) return
-
-    const timer = window.setTimeout(() => {
-      const didScroll = scrollToMessage(scrollTargetMessageId)
-      if (didScroll) {
-        setScrollTargetMessageId(null)
-      }
-    }, 50)
-
-    return () => window.clearTimeout(timer)
-  }, [scrollTargetMessageId, scrollToMessage, messages])
-
-  useEffect(() => {
-<<<<<<< HEAD
     setThemeMounted(true)
   }, [])
-=======
-    if (!isMobile) {
-      setIsSidebarOpen(true)
-    }
-  }, [isMobile])
->>>>>>> add_library
-
-  useEffect(() => {
-    setSearchCursor(null)
-    setSearchStatus(null)
-    setSearchHighlightTerms([])
-  }, [searchQuery])
-=======
-    setThemeMounted(true)
-  }, [])
->>>>>>> mcericola
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -678,63 +482,15 @@ export function ChatContainer() {
       }
 
       const data: ConversationResponse = await response.json()
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
       setConversationId(data.conversationId)
       setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
-<<<<<<< HEAD
-<<<<<<< HEAD
       resetAttachmentUiState()
       return data
     },
     [setMessages, resetAttachmentUiState],
   )
-
-  useEffect(() => {
-    if (messages.length === 0) {
-      return
-    }
-
-    let needsUpdate = false
-    const nextAssignments: Record<string, MessageAttachment[]> = {}
-
-    for (const message of messages) {
-      if (message.role !== "user") {
-        continue
-      }
-
-      if (seenUserMessageIdsRef.current.has(message.id)) {
-        continue
-      }
-
-      seenUserMessageIdsRef.current.add(message.id)
-      const queued = queuedAttachmentsRef.current.shift() ?? []
-      if (queued.length > 0) {
-        nextAssignments[message.id] = queued
-        needsUpdate = true
-      }
-    }
-
-    if (needsUpdate) {
-      setAttachmentsByMessageId((previous) => ({ ...previous, ...nextAssignments }))
-    }
-  }, [messages])
-=======
-=======
-      applyConversationData(data)
->>>>>>> mcericola
-=======
-      resetAttachmentUiState()
->>>>>>> mcericola
-      return data
-    },
-    [setMessages, resetAttachmentUiState],
-  )
->>>>>>> add_library
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -803,10 +559,6 @@ export function ChatContainer() {
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading || !conversationId) return
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
     const attachmentSnapshot: MessageAttachment[] = pendingAttachments.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
@@ -822,7 +574,6 @@ export function ChatContainer() {
       documentUrl: attachment.documentUrl,
     }))
     queuedAttachmentsRef.current.push(attachmentSnapshot)
-<<<<<<< HEAD
     sendMessage(
       { text: input },
       {
@@ -836,26 +587,6 @@ export function ChatContainer() {
           attachments: requestAttachments,
           carbonSettings,
         },
-=======
-    sendMessage(
-      { text: input },
-      {
-        body: { conversationId, model },
->>>>>>> add_library
-=======
-    sendMessage(
-      { text: input },
-      {
-        body: {
-          conversationId,
-          model,
-          webSearchEnabled,
-          deepSearchEnabled,
-          imageGenerationEnabled,
-          imageModel,
-          attachments: requestAttachments,
-        },
->>>>>>> mcericola
       },
     )
     setInput("")
@@ -867,10 +598,6 @@ export function ChatContainer() {
     sendMessage(
       { text: prompt },
       {
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
         body: {
           conversationId,
           model,
@@ -880,13 +607,6 @@ export function ChatContainer() {
           imageModel,
           carbonSettings,
         },
-<<<<<<< HEAD
-      },
-    )
-=======
-        body: { conversationId, model },
-=======
->>>>>>> mcericola
       },
     )
   }
@@ -1045,168 +765,8 @@ export function ChatContainer() {
     } finally {
       setIsMutatingConversation(false)
     }
->>>>>>> add_library
   }
 
-<<<<<<< HEAD
-  const handleSelectConversation = async (targetConversationId: string) => {
-    if (!targetConversationId || targetConversationId === conversationId || isLoading) {
-      return
-    }
-
-    setEditingConversationId(null)
-    setEditingConversationName("")
-    setIsHydratingConversation(true)
-    try {
-      await loadConversation(targetConversationId)
-      if (isMobile) {
-        setIsSidebarOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to switch conversations.", error)
-    } finally {
-      setIsHydratingConversation(false)
-    }
-  }
-
-  const handleCreateConversation = async () => {
-    if (isLoading) return
-
-    setEditingConversationId(null)
-    setEditingConversationName("")
-    setIsHydratingConversation(true)
-    try {
-      const response = await fetch("/api/conversations", {
-        method: "POST",
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        throw new Error(`Conversation create failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      setConversationId(data.conversationId)
-      setModel(sanitizeModel(data.model))
-      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-      setMessages(data.messages)
-      setInput("")
-      resetAttachmentUiState()
-      await refreshConversations()
-
-      if (isMobile) {
-        setIsSidebarOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to create a new conversation.", error)
-    } finally {
-      setIsHydratingConversation(false)
-    }
-  }
-
-  const handleStartRenameConversation = (conversation: ConversationSummary) => {
-    if (isLoading) return
-    setEditingConversationId(conversation.conversationId)
-    setEditingConversationName(conversation.title || "")
-  }
-
-  const handleCancelRenameConversation = () => {
-    setEditingConversationId(null)
-    setEditingConversationName("")
-  }
-
-  const handleSaveRenameConversation = async () => {
-    if (isLoading || !editingConversationId) return
-
-    const nextName = editingConversationName.trim()
-    if (!nextName) return
-
-    setIsMutatingConversation(true)
-    try {
-      const response = await fetch("/api/conversations", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          conversationId: editingConversationId,
-          name: nextName,
-        }),
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error || `Conversation rename failed with status ${response.status}`)
-      }
-
-      await refreshConversations()
-      handleCancelRenameConversation()
-    } catch (error) {
-      console.error("Failed to rename conversation.", error)
-      const message = error instanceof Error ? error.message : "Failed to rename conversation."
-      window.alert(message)
-    } finally {
-      setIsMutatingConversation(false)
-    }
-  }
-
-  const handleDeleteConversation = async (targetConversationId: string) => {
-    if (isLoading) return
-
-    const targetConversation = conversations.find(
-      (conversation) => conversation.conversationId === targetConversationId,
-    )
-    const targetLabel = targetConversation?.title || targetConversationId
-
-    if (!window.confirm(`Delete "${targetLabel}"? This cannot be undone.`)) {
-      return
-    }
-
-    setIsMutatingConversation(true)
-    try {
-      const query = new URLSearchParams({
-        conversationId: targetConversationId,
-      })
-      if (conversationId) {
-        query.set("activeConversationId", conversationId)
-      }
-
-      const response = await fetch(`/api/conversations?${query.toString()}`, {
-        method: "DELETE",
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error || `Conversation delete failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      const deletedActiveConversation = targetConversationId === conversationId
-
-      if (deletedActiveConversation) {
-        setConversationId(data.conversationId)
-        setModel(sanitizeModel(data.model))
-        window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-        setMessages(data.messages)
-        resetAttachmentUiState()
-      }
-
-      if (editingConversationId === targetConversationId) {
-        handleCancelRenameConversation()
-      }
-
-      await refreshConversations()
-    } catch (error) {
-      console.error("Failed to delete conversation.", error)
-      const message = error instanceof Error ? error.message : "Failed to delete conversation."
-      window.alert(message)
-    } finally {
-      setIsMutatingConversation(false)
-    }
-  }
-
-=======
->>>>>>> mcericola
   const activeToolStatus = useMemo(() => {
     if (status !== "submitted") {
       return null
@@ -1238,8 +798,6 @@ export function ChatContainer() {
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
-<<<<<<< HEAD
-<<<<<<< HEAD
       {isMobile && isSidebarOpen ? (
         <button
           type="button"
@@ -1441,247 +999,6 @@ export function ChatContainer() {
             </button>
           </div>
         </div>
-=======
-      <button
-        type="button"
-        onClick={() => setDashboardOpen(true)}
-        className="fixed right-3 top-16 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
-        aria-label="Open carbon footprint dashboard"
-      >
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span aria-hidden>🌿</span>
-        </div>
-        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
-          Footprint: {formatFootprint(footprintKg)}
-        </span>
-      </button>
-
-=======
->>>>>>> mcericola
-      {isMobile && isSidebarOpen ? (
-        <button
-          type="button"
-          className="absolute inset-0 z-30 bg-black/20"
-          onClick={() => setIsSidebarOpen(false)}
-          aria-label="Close conversation sidebar"
-        />
-      ) : null}
-
-      <aside
-        className={cn(
-          "absolute inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-border/70 bg-card/95 backdrop-blur-md transition-transform duration-300",
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full",
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-border/70 px-3 py-3">
-          <p className="text-sm font-semibold text-foreground">Conversations</p>
-          <button
-            type="button"
-            onClick={handleCreateConversation}
-            disabled={isLoading}
-            className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-          >
-            <PlusIcon className="h-3.5 w-3.5" />
-            New
-          </button>
-        </div>
-
-        <div className="custom-scrollbar flex-1 overflow-y-auto p-2">
-          {conversations.length === 0 ? (
-            <p className="px-2 py-3 text-xs text-muted-foreground">No conversations yet.</p>
-          ) : (
-            conversations.map((conversation) => {
-              const isActive = conversation.conversationId === conversationId
-              const isEditing = editingConversationId === conversation.conversationId
-
-              return (
-                <div key={conversation.conversationId} className="mb-1">
-                  {isEditing ? (
-                    <div className="rounded-lg border border-primary/40 bg-primary/10 p-2">
-                      <input
-                        type="text"
-                        value={editingConversationName}
-                        onChange={(event) => setEditingConversationName(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault()
-                            void handleSaveRenameConversation()
-                          }
-                          if (event.key === "Escape") {
-                            event.preventDefault()
-                            handleCancelRenameConversation()
-                          }
-                        }}
-                        autoFocus
-                        disabled={isLoading}
-                        className="w-full rounded-md border border-border/70 bg-background px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                      />
-                      <div className="mt-2 flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={handleCancelRenameConversation}
-                          disabled={isLoading}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                          aria-label="Cancel rename conversation"
-                        >
-                          <XIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveRenameConversation()}
-                          disabled={isLoading || !editingConversationName.trim()}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                          aria-label="Save conversation name"
-                        >
-                          <CheckIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      className={cn(
-                        "group relative rounded-lg border transition-colors",
-                        isActive
-                          ? "border-primary/50 bg-primary/10"
-                          : "border-transparent bg-transparent hover:border-border/70 hover:bg-muted/70",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void handleSelectConversation(conversation.conversationId)}
-                        className="w-full rounded-lg px-3 py-2 pr-16 text-left"
-                      >
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {conversation.title || conversation.conversationId}
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {conversation.messageCount} messages • {formatConversationDate(conversation.updatedAt)}
-                        </p>
-                      </button>
-
-                      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-90 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-                        <button
-                          type="button"
-                          onClick={() => handleStartRenameConversation(conversation)}
-                          disabled={isLoading}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                          aria-label="Rename conversation"
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteConversation(conversation.conversationId)}
-                          disabled={isLoading}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground transition-colors hover:text-red-600 disabled:opacity-50"
-                          aria-label="Delete conversation"
-                        >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })
-          )}
-        </div>
-      </aside>
-
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 flex-col overflow-hidden transition-[margin-left] duration-300",
-          isSidebarOpen ? "md:ml-72" : "md:ml-0",
-        )}
-      >
-<<<<<<< HEAD
-        <div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen((prev) => !prev)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
-            aria-label="Toggle conversation sidebar"
-          >
-            <MenuIcon className="h-4 w-4" />
-          </button>
-          <p className="truncate text-sm font-medium text-foreground">
-            {activeConversation?.title || conversationId || "conversation"}
-          </p>
-        </div>
->>>>>>> add_library
-
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-card/60 px-3 py-2">
-          <form
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void handleSearchNext()
-            }}
-          >
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search messages"
-              className="h-9 w-60"
-              disabled={isLoading || isSearching}
-            />
-            <Button
-              type="submit"
-              variant="outline"
-              className="h-9"
-              disabled={isLoading || isSearching}
-=======
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen((prev) => !prev)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
-              aria-label="Toggle conversation sidebar"
->>>>>>> mcericola
-            >
-              <MenuIcon className="h-4 w-4" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <LeafIcon className="h-4 w-4" />
-              </div>
-              <span className="hidden text-sm font-semibold tracking-tight text-foreground sm:inline">
-                Verdant
-              </span>
-            </div>
-            <p className="truncate text-sm font-medium text-foreground">
-              {activeConversation?.title || conversationId || "conversation"}
-            </p>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {themeMounted ? (
-              <button
-                type="button"
-                onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
-                className="inline-flex h-8 items-center rounded-full border-2 border-emerald-700 bg-emerald-100/80 px-3 text-xs font-medium text-emerald-950 ring-1 ring-emerald-700/35 transition hover:-translate-y-0.5 hover:border-emerald-800 hover:bg-emerald-200 hover:shadow-[0_10px_24px_-10px_rgba(16,185,129,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/80 dark:border-emerald-300 dark:bg-emerald-500/30 dark:text-emerald-50 dark:ring-emerald-300/45 dark:hover:border-emerald-200 dark:hover:bg-emerald-500/45 dark:focus-visible:ring-emerald-300/95"
-                aria-label="Toggle theme"
-              >
-                {isDarkTheme ? "🌙 Dark" : "☀️ Light"}
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => setDashboardOpen(true)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm transition hover:border-primary/50 hover:bg-background"
-              aria-label="Open carbon footprint dashboard"
-            >
-              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <span aria-hidden>🌿</span>
-              </div>
-              <span className="hidden whitespace-nowrap sm:inline" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
-                Footprint: {formatFootprint(footprintKg)}
-              </span>
-            </button>
-          </div>
-        </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {messages.length === 0 ? (
@@ -1692,10 +1009,6 @@ export function ChatContainer() {
                 <ChatMessage
                   key={message.id}
                   message={message}
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
                   attachments={attachmentsByMessageId[message.id] ?? []}
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
                 />
@@ -1710,14 +1023,6 @@ export function ChatContainer() {
                   </div>
                 </div>
               ) : null}
-<<<<<<< HEAD
-=======
-                  isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
-                />
-              ))}
->>>>>>> add_library
-=======
->>>>>>> mcericola
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -1745,10 +1050,6 @@ export function ChatContainer() {
           isLoading={isLoading}
           model={model}
           onModelChange={(value) => setModel(sanitizeModel(value))}
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> mcericola
           imageGenerationEnabled={imageGenerationEnabled}
           onToggleImageGeneration={() => setImageGenerationEnabled((current) => !current)}
           imageModel={imageModel}
@@ -1841,11 +1142,6 @@ export function ChatContainer() {
               current.filter((attachment) => attachment.id !== attachmentId),
             )
           }}
-<<<<<<< HEAD
-=======
->>>>>>> add_library
-=======
->>>>>>> mcericola
         />
       </div>
 

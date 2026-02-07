@@ -1,25 +1,11 @@
 {
   "activeFileDetails": {
     "existsActive": true,
-<<<<<<< HEAD
-<<<<<<< HEAD
     "activeChatIndex": 13,
     "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
   },
   "convoName": "Demo Convo",
-=======
-    "activeChatIndex": 2,
-    "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation2.json"
-  },
-  "convoName": "Conversation 2",
->>>>>>> add_library
-=======
-    "activeChatIndex": 13,
-    "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
-  },
-  "convoName": "Demo Convo",
->>>>>>> mcericola
-  "convoIndex": 25,
+  "convoIndex": 13,
   "carbonFootprint": 0,
   "permanent memories": []
 }
