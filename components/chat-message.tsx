@@ -1,7 +1,10 @@
 "use client"
 
 import type { UIMessage } from "ai"
+<<<<<<< HEAD
 import { useEffect, useRef, useState } from "react"
+=======
+>>>>>>> add_library
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
@@ -173,6 +176,7 @@ interface ChatMessageProps {
   }>
 }
 
+<<<<<<< HEAD
 function formatAttachmentSize(bytes: number, type?: string): string {
   if (type === "text/uri-list" || bytes <= 0) {
     return "URL"
@@ -215,6 +219,12 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
   const copyTimerRef = useRef<number | null>(null)
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
 
+=======
+export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+  const isUser = message.role === "user"
+  const isStreamingAssistant = Boolean(isStreaming && !isUser)
+
+>>>>>>> add_library
   const textFromParts = message.parts
     ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
@@ -223,6 +233,7 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
   const text =
     textFromParts ||
     (typeof messageWithContent.content === "string" ? messageWithContent.content : "")
+<<<<<<< HEAD
 
   useEffect(() => {
     return () => {
@@ -284,6 +295,8 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
     setIsSpeaking(true)
     synth.speak(utterance)
   }
+=======
+>>>>>>> add_library
 
   return (
     <div
@@ -305,6 +318,7 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
         onMouseEnter={() => setIsHoveringMessage(true)}
         onMouseLeave={() => setIsHoveringMessage(false)}
       >
+<<<<<<< HEAD
         <div className="relative">
           <div
             className={cn(
@@ -393,7 +407,20 @@ export function ChatMessage({ message, isStreaming, attachments = [] }: ChatMess
               </button>
             </div>
           ) : null}
+=======
+        <div className="space-y-2 break-words [&_*]:max-w-full [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3">
+          {isStreamingAssistant ? (
+            <div className="whitespace-pre-wrap">{text || ""}</div>
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {text || ""}
+            </ReactMarkdown>
+          )}
+>>>>>>> add_library
         </div>
+        {isStreamingAssistant && (
+          <span className="typing-cursor" />
+        )}
       </div>
       {isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seafoam/40">
