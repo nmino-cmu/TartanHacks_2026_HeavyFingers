@@ -2,9 +2,17 @@
 wallet.json
 todo.md
 .env
+<<<<<<< HEAD
+=======
+.env.local
+>>>>>>> global_storage_test
 package-lock.json
 /node_modules
 /.next
 /dedalus_stuff/conversations
+<<<<<<< HEAD
 
 repomix-output.xml
+=======
+wallet*.json
+>>>>>>> global_storage_test

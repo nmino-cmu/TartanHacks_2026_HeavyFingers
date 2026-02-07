@@ -11,7 +11,7 @@ load_dotenv()
 JSON_FILE_LOCATION = os.getcwd()
 # Change this when needed
 # JSON_FILE_NAME = 
-JSON_FILE_NAME = "test_chat_info.json"
+JSON_FILE_NAME = "globalInfo.json"
 
 def require(d, key):
     if key not in d:
@@ -26,7 +26,7 @@ async def main():
 
     client = AsyncDedalus(api_key = api_key)
 
-    chatInfoJsonPath = JSON_FILE_LOCATION + "/" + JSON_FILE_NAME
+    chatInfoJsonPath = JSON_FILE_LOCATION + "/dedalus_stuff/" + JSON_FILE_NAME
     with open(chatInfoJsonPath, "r", encoding="utf-8") as convoInfo:
         convoData = json.load(convoInfo)
 

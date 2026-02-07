@@ -123,7 +123,11 @@ export function ChatInput({
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
+<<<<<<< HEAD
             placeholder="Ask anything..."
+=======
+            placeholder="Ask Verdant anything..."
+>>>>>>> global_storage_test
             rows={1}
             disabled={isLoading}
             className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-2 
@@ -147,7 +151,11 @@ export function ChatInput({
           </Button>
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground">
+<<<<<<< HEAD
           Models may produce inaccurate information. Verify important facts.
+=======
+          Verdant may produce inaccurate information. Verify important facts.
+>>>>>>> global_storage_test
         </p>
       </div>
     </div>
