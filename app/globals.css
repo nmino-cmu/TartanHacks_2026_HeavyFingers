@@ -52,6 +52,47 @@
     --mint: 150 35% 88%;
     --fern: 145 48% 32%;
   }
+
+  .dark {
+    --background: 160 16% 8%;
+    --foreground: 150 30% 94%;
+    --card: 160 18% 10%;
+    --card-foreground: 150 30% 94%;
+    --popover: 160 18% 10%;
+    --popover-foreground: 150 30% 94%;
+    --primary: 150 55% 52%;
+    --primary-foreground: 160 14% 8%;
+    --secondary: 160 12% 18%;
+    --secondary-foreground: 150 25% 90%;
+    --muted: 160 10% 20%;
+    --muted-foreground: 150 15% 70%;
+    --accent: 158 45% 45%;
+    --accent-foreground: 160 16% 8%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 160 10% 24%;
+    --input: 160 10% 24%;
+    --ring: 150 55% 52%;
+    --chart-1: 150 55% 52%;
+    --chart-2: 158 45% 45%;
+    --chart-3: 155 30% 82%;
+    --chart-4: 150 22% 65%;
+    --chart-5: 140 35% 60%;
+    --sidebar-background: 160 12% 12%;
+    --sidebar-foreground: 150 30% 92%;
+    --sidebar-primary: 150 55% 52%;
+    --sidebar-primary-foreground: 160 14% 8%;
+    --sidebar-accent: 160 12% 18%;
+    --sidebar-accent-foreground: 150 30% 92%;
+    --sidebar-border: 160 10% 24%;
+    --sidebar-ring: 150 55% 52%;
+
+    --pine: 150 25% 82%;
+    --pine-light: 150 35% 70%;
+    --seafoam: 158 45% 60%;
+    --mint: 150 25% 20%;
+    --fern: 150 45% 48%;
+  }
 }
 
 @layer base {
@@ -75,6 +116,17 @@
     linear-gradient(60deg, hsl(162 38% 65% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(162 38% 65% / 0.06) 75%, hsl(162 38% 65% / 0.06));
   background-size: 80px 140px;
   background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
+}
+
+.dark .mosaic-bg {
+  background-color: hsl(160 16% 8%);
+  background-image:
+    linear-gradient(30deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
+    linear-gradient(150deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
+    linear-gradient(30deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
+    linear-gradient(150deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
+    linear-gradient(60deg, hsl(158 45% 45% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(158 45% 45% / 0.07) 75%, hsl(158 45% 45% / 0.07)),
+    linear-gradient(60deg, hsl(150 55% 52% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(150 55% 52% / 0.06) 75%, hsl(150 55% 52% / 0.06));
 }
 
 /* Pine gradient for hero/accent areas */

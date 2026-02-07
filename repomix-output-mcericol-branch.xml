@@ -42,12 +42,21 @@ The content is organized as follows:
 <directory_structure>
 app/
   api/
+    auth/
+      [...nextauth]/
+        route.ts
     chat/
       route.ts
+    wallet/
+      route.ts
+  wallet/
+    page.tsx
   globals.css
   layout.tsx
   page.tsx
 components/
+  providers/
+    session-provider.tsx
   ui/
     accordion.tsx
     alert-dialog.tsx
@@ -103,13 +112,16 @@ components/
   chat-container.tsx
   chat-input.tsx
   chat-message.tsx
+  chat-shell.tsx
+  chat-sidebar.tsx
   header.tsx
   theme-provider.tsx
   welcome-screen.tsx
 dedalus_stuff/
-  conversations/
-    conversation1.json
-  repomix-output.xml
+  .env.local
+  jsonTemplate.txt
+  main.py
+  test_chat_info.json
 hooks/
   use-mobile.ts
   use-toast.ts
@@ -123,10 +135,15 @@ public/
   placeholder.svg
 styles/
   globals.css
+wallet/
+  wallet.py
+.env.example
+.env.local
 .gitignore
 components.json
+env_costs.py
+every_donate.py
 index.html
-main.py
 next-env.d.ts
 next.config.mjs
 package.json
@@ -139,144 +156,174 @@ tsconfig.json
 <files>
 This section contains the contents of the repository's files.
 
-<file path="dedalus_stuff/conversations/conversation1.json">
-{
-  "format": {
-    "name": "conversation_bundle",
-    "version": "1.0"
+<file path="dedalus_stuff/.env.local">
+DEDALUS_API_KEY=dsk-test-019a6f8d8b37-e36570729146cee6fe047499abe396ed
+</file>
+
+<file path="app/api/auth/[...nextauth]/route.ts">
+import NextAuth from "next-auth"
+import Google from "next-auth/providers/google"
+import Credentials from "next-auth/providers/credentials"
+
+const hasGoogleCreds = Boolean(
+  process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
+)
+
+const providers = [
+  Credentials({
+    name: "Dev Login",
+    credentials: {
+      name: { label: "Name", type: "text", placeholder: "Demo User" },
+    },
+    async authorize(credentials) {
+      const name = credentials?.name?.trim() || "Demo User"
+      return { id: "dev-user", name, email: "dev@example.com" }
+    },
+  }),
+]
+
+if (hasGoogleCreds) {
+  providers.push(
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    }),
+  )
+}
+
+const handler = NextAuth({
+  providers,
+  session: {
+    strategy: "jwt",
   },
-  "encoding": {
-    "charset": "utf-8",
-    "line_endings": "lf"
-  },
-  "conversation": {
-    "name": "NONE",
-    "name_hash_sha256": "SHA256_OF_NAME"
-  },
-  "model": {
-    "kind": "claude-opus",
-    "name": "claude-opus-4-5"
-  },
-  "messages": {
-    "messages": [],
-    "filepaths": [],
-    "tools": [],
-    "notes": ""
+  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
+  debug: true,
+})
+
+export { handler as GET, handler as POST }
+</file>
+
+<file path="app/api/wallet/route.ts">
+import { NextResponse } from "next/server"
+import path from "path"
+import { execFile } from "child_process"
+import { promisify } from "util"
+
+const execFileAsync = promisify(execFile)
+
+const WALLET_SCRIPT = path.join(process.cwd(), "wallet", "wallet.py")
+const DEFAULT_WALLET_PATH = path.join(process.cwd(), "wallet", "wallets", "wallet.json")
+const PYTHON_BIN = process.env.PYTHON_BIN || "python3"
+
+type WalletAction = "create" | "info" | "send-check"
+
+async function runWalletCommand(args: string[]) {
+  const { stdout, stderr } = await execFileAsync(PYTHON_BIN, args, {
+    timeout: 25_000,
+  })
+
+  // If the script writes errors to stderr but still returns JSON, prefer stdout.
+  if (!stdout?.trim()) {
+    throw new Error(stderr || "Wallet script produced no output")
+  }
+
+  let parsed
+  try {
+    parsed = JSON.parse(stdout)
+  } catch (error) {
+    throw new Error(`Failed to parse wallet output: ${stdout}`)
+  }
+
+  if (parsed.status === "error") {
+    throw new Error(parsed.error || "Wallet script error")
+  }
+
+  return parsed.data
+}
+
+async function handleAction(action: WalletAction, payload: any) {
+  switch (action) {
+    case "create": {
+      const force = Boolean(payload?.force)
+      const args = [
+        WALLET_SCRIPT,
+        "create",
+        "--wallet-file",
+        payload?.walletFile || DEFAULT_WALLET_PATH,
+      ]
+      if (force) args.push("--force")
+      return runWalletCommand(args)
+    }
+    case "info": {
+      const refresh = Boolean(payload?.refresh)
+      const args = [
+        WALLET_SCRIPT,
+        "info",
+        "--wallet-file",
+        payload?.walletFile || DEFAULT_WALLET_PATH,
+      ]
+      if (refresh) args.push("--refresh")
+      return runWalletCommand(args)
+    }
+    case "send-check": {
+      const destination = payload?.destination
+      const amount = payload?.amount
+      if (!destination || !amount) {
+        throw new Error("destination and amount are required for send-check")
+      }
+      const args = [
+        WALLET_SCRIPT,
+        "send-check",
+        "--wallet-file",
+        payload?.walletFile || DEFAULT_WALLET_PATH,
+        "--destination",
+        destination,
+        "--amount",
+        String(amount),
+      ]
+      return runWalletCommand(args)
+    }
+    default:
+      throw new Error(`Unsupported action: ${action satisfies never}`)
   }
 }
-</file>
 
-<file path="dedalus_stuff/repomix-output.xml">
-This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const refresh = searchParams.get("refresh") === "true"
 
-<file_summary>
-This section contains a summary of this file.
-
-<purpose>
-This file contains a packed representation of the entire repository's contents.
-It is designed to be easily consumable by AI systems for analysis, code review,
-or other automated processes.
-</purpose>
-
-<file_format>
-The content is organized as follows:
-1. This summary section
-2. Repository information
-3. Directory structure
-4. Repository files (if enabled)
-5. Multiple file entries, each consisting of:
-  - File path as an attribute
-  - Full contents of the file
-</file_format>
-
-<usage_guidelines>
-- This file should be treated as read-only. Any changes should be made to the
-  original repository files, not this packed version.
-- When processing this file, use the file path to distinguish
-  between different files in the repository.
-- Be aware that this file may contain sensitive information. Handle it with
-  the same level of security as you would the original repository.
-</usage_guidelines>
-
-<notes>
-- Some files may have been excluded based on .gitignore rules and Repomix's configuration
-- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Files matching patterns in .gitignore are excluded
-- Files matching default ignore patterns are excluded
-- Files are sorted by Git change count (files with more changes are at the bottom)
-</notes>
-
-</file_summary>
-
-<directory_structure>
-conversations/
-  conversation1.json
-</directory_structure>
-
-<files>
-This section contains the contents of the repository's files.
-
-<file path="conversations/conversation1.json">
-{
-  "format": {
-    "name": "conversation_bundle",
-    "version": "1.0"
-  },
-  "encoding": {
-    "charset": "utf-8",
-    "line_endings": "lf"
-  },
-  "conversation": {
-    "name": "NONE",
-    "name_hash_sha256": "SHA256_OF_NAME"
-  },
-  "model": {
-    "kind": "claude-opus",
-    "name": "claude-opus-4-5"
-  },
-  "messages": {
-    "messages": [],
-    "filepaths": [],
-    "tools": [],
-    "notes": ""
+  try {
+    const data = await handleAction("info", { refresh })
+    return NextResponse.json({ status: "ok", data })
+  } catch (error: any) {
+    return NextResponse.json(
+      { status: "error", error: error?.message ?? "Unknown error" },
+      { status: 500 },
+    )
   }
 }
-</file>
-
-</files>
-</file>
-
-<file path="app/api/chat/route.ts">
-import {
-  consumeStream,
-  convertToModelMessages,
-  streamText,
-  type UIMessage,
-} from "ai"
-
-export const maxDuration = 60
-
-const DAEDALUS_SYSTEM_PROMPT = `You are Daedalus, an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.
-You have a warm, grounded personality inspired by nature and sustainability.
-When appropriate, you weave in eco-friendly perspectives without being preachy.
-You provide clear, well-structured responses with practical advice.
-You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.
-Always be concise yet thorough. Use markdown formatting when it helps clarity.`
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json()
+  const body = await req.json().catch(() => ({}))
+  const action = body?.action as WalletAction | undefined
 
-  const result = streamText({
-    model: "openai/gpt-4o-mini",
-    system: DAEDALUS_SYSTEM_PROMPT,
-    messages: await convertToModelMessages(messages),
-    abortSignal: req.signal,
-  })
+  if (!action) {
+    return NextResponse.json(
+      { status: "error", error: "Missing action" },
+      { status: 400 },
+    )
+  }
 
-  return result.toUIMessageStreamResponse({
-    originalMessages: messages,
-    consumeSseStream: consumeStream,
-  })
+  try {
+    const data = await handleAction(action, body)
+    return NextResponse.json({ status: "ok", data })
+  } catch (error: any) {
+    return NextResponse.json(
+      { status: "error", error: error?.message ?? "Unknown error" },
+      { status: 500 },
+    )
+  }
 }
 </file>
 
@@ -335,6 +382,47 @@ export async function POST(req: Request) {
     --mint: 150 35% 88%;
     --fern: 145 48% 32%;
   }
+
+  .dark {
+    --background: 160 16% 8%;
+    --foreground: 150 30% 94%;
+    --card: 160 18% 10%;
+    --card-foreground: 150 30% 94%;
+    --popover: 160 18% 10%;
+    --popover-foreground: 150 30% 94%;
+    --primary: 150 55% 52%;
+    --primary-foreground: 160 14% 8%;
+    --secondary: 160 12% 18%;
+    --secondary-foreground: 150 25% 90%;
+    --muted: 160 10% 20%;
+    --muted-foreground: 150 15% 70%;
+    --accent: 158 45% 45%;
+    --accent-foreground: 160 16% 8%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 160 10% 24%;
+    --input: 160 10% 24%;
+    --ring: 150 55% 52%;
+    --chart-1: 150 55% 52%;
+    --chart-2: 158 45% 45%;
+    --chart-3: 155 30% 82%;
+    --chart-4: 150 22% 65%;
+    --chart-5: 140 35% 60%;
+    --sidebar-background: 160 12% 12%;
+    --sidebar-foreground: 150 30% 92%;
+    --sidebar-primary: 150 55% 52%;
+    --sidebar-primary-foreground: 160 14% 8%;
+    --sidebar-accent: 160 12% 18%;
+    --sidebar-accent-foreground: 150 30% 92%;
+    --sidebar-border: 160 10% 24%;
+    --sidebar-ring: 150 55% 52%;
+
+    --pine: 150 25% 82%;
+    --pine-light: 150 35% 70%;
+    --seafoam: 158 45% 60%;
+    --mint: 150 25% 20%;
+    --fern: 150 45% 48%;
+  }
 }
 
 @layer base {
@@ -358,6 +446,17 @@ export async function POST(req: Request) {
     linear-gradient(60deg, hsl(162 38% 65% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(162 38% 65% / 0.06) 75%, hsl(162 38% 65% / 0.06));
   background-size: 80px 140px;
   background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
+}
+
+.dark .mosaic-bg {
+  background-color: hsl(160 16% 8%);
+  background-image:
+    linear-gradient(30deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
+    linear-gradient(150deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
+    linear-gradient(30deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
+    linear-gradient(150deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
+    linear-gradient(60deg, hsl(158 45% 45% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(158 45% 45% / 0.07) 75%, hsl(158 45% 45% / 0.07)),
+    linear-gradient(60deg, hsl(150 55% 52% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(150 55% 52% / 0.06) 75%, hsl(150 55% 52% / 0.06));
 }
 
 /* Pine gradient for hero/accent areas */
@@ -394,46 +493,6 @@ export async function POST(req: Request) {
 }
 </file>
 
-<file path="app/layout.tsx">
-import React from "react"
-import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
-
-import './globals.css'
-
-const geistSans = Geist({
-  subsets: ['latin'],
-  variable: '--font-geist-sans',
-})
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-geist-mono',
-})
-
-export const metadata: Metadata = {
-  title: 'Daedalus - Eco-Powered AI Assistant',
-  description: 'A nature-inspired AI prompting interface powered by the Daedalus LLM. Explore intelligent conversations with an eco-conscious design.',
-}
-
-export const viewport: Viewport = {
-  themeColor: '#3d7a4f',
-}
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
-  return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
-        {children}
-      </body>
-    </html>
-  )
-}
-</file>
-
 <file path="app/page.tsx">
 import { Header } from "@/components/header"
 import { ChatContainer } from "@/components/chat-container"
@@ -447,6 +506,20 @@ export default function Page() {
       </main>
     </div>
   )
+}
+</file>
+
+<file path="components/providers/session-provider.tsx">
+"use client"
+
+import { SessionProvider } from "next-auth/react"
+
+type Props = {
+  children: React.ReactNode
+}
+
+export function AuthProvider({ children }: Props) {
+  return <SessionProvider>{children}</SessionProvider>
 }
 </file>
 
@@ -5643,292 +5716,12 @@ function useToast() {
 export { useToast, toast }
 </file>
 
-<file path="components/account-dialog.tsx">
-"use client"
-
-import React from "react"
-
-import { useState } from "react"
-import { Button } from "@/components/ui/button" 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-
-interface AccountDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onLogin: (name: string) => void
-}
-
-export function AccountDialog({ open, onOpenChange, onLogin }: AccountDialogProps) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin")
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const displayName = name || email.split("@")[0] || "User"
-    onLogin(displayName)
-    setName("")
-    setEmail("")
-    setPassword("")
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card text-card-foreground sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-xl text-foreground">
-            {mode === "signin" ? "Welcome back" : "Create an account"}
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground">
-            {mode === "signin"
-              ? "Sign in to your Daedalus account to continue."
-              : "Sign up for Daedalus to save your conversations."}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-2">
-          {mode === "signup" && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name" className="text-foreground">Name</Label>
-              <Input
-                id="name"
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="border-border bg-background text-foreground"
-              />
-            </div>
-          )}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email" className="text-foreground">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="hello@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="border-border bg-background text-foreground"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password" className="text-foreground">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="border-border bg-background text-foreground"
-            />
-          </div>
-          <Button type="submit" className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
-            {mode === "signin" ? "Sign In" : "Create Account"}
-          </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            {mode === "signin" ? (
-              <>
-                {"Don't have an account? "}
-                <button
-                  type="button"
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                  onClick={() => setMode("signup")}
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                {"Already have an account? "}
-                <button
-                  type="button"
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                  onClick={() => setMode("signin")}
-                >
-                  Sign in
-                </button>
-              </>
-            )}
-          </p>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-</file>
-
-<file path="components/chat-container.tsx">
-"use client"
-
-import { useState, useRef, useEffect } from "react"
-import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
-import { ChatMessage } from "@/components/chat-message"
-import { ChatInput } from "@/components/chat-input"
-import { WelcomeScreen } from "@/components/welcome-screen"
-
-const transport = new DefaultChatTransport({ api: "/api/chat" })
-
-export function ChatContainer() {
-  const [input, setInput] = useState("")
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  const { messages, sendMessage, status } = useChat({
-    transport,
-  })
-
-  const isLoading = status === "streaming" || status === "submitted"
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
-
-  const handleSubmit = () => {
-    if (!input.trim() || isLoading) return
-    sendMessage({ text: input })
-    setInput("")
-  }
-
-  const handleSuggestionClick = (prompt: string) => {
-    sendMessage({ text: prompt })
-  }
-
-  return (
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {messages.length === 0 ? (
-          <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
-        ) : (
-          <div className="mx-auto max-w-3xl py-6">
-            {messages.map((message, index) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                isStreaming={
-                  isLoading &&
-                  index === messages.length - 1 &&
-                  message.role === "assistant"
-                }
-              />
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
-      <ChatInput
-        input={input}
-        onInputChange={setInput}
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-      />
-    </div>
-  )
-}
-</file>
-
-<file path="components/chat-input.tsx">
-"use client"
-
-import React from "react"
-
-import { useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-
-function SendIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="m22 2-7 20-4-9-9-4Z" />
-      <path d="M22 2 11 13" />
-    </svg>
-  )
-}
-
-interface ChatInputProps {
-  input: string
-  onInputChange: (value: string) => void
-  onSubmit: () => void
-  isLoading: boolean
-}
-
-export function ChatInput({ input, onInputChange, onSubmit, isLoading }: ChatInputProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
-    }
-  }, [input])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      if (input.trim() && !isLoading) {
-        onSubmit()
-      }
-    }
-  }
-
-  return (
-    <div className="border-t border-border/60 bg-card/80 backdrop-blur-md p-4">
-      <div className="mx-auto max-w-3xl">
-        <div className="flex items-end gap-3 rounded-2xl border border-border bg-background p-2 shadow-sm transition-shadow focus-within:shadow-md focus-within:border-primary/40">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => onInputChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask Daedalus anything..."
-            rows={1}
-            disabled={isLoading}
-            className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
-            aria-label="Chat message input"
-          />
-          <Button
-            onClick={onSubmit}
-            disabled={!input.trim() || isLoading}
-            size="sm"
-            className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-            aria-label="Send message"
-          >
-            {isLoading ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-            ) : (
-              <SendIcon className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          Daedalus may produce inaccurate information. Verify important facts.
-        </p>
-      </div>
-    </div>
-  )
-}
-</file>
-
 <file path="components/chat-message.tsx">
 "use client"
 
 import type { UIMessage } from "ai"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 
 function BotIcon({ className }: { className?: string }) {
@@ -6000,12 +5793,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             : "bg-card text-card-foreground border border-border/60 shadow-sm"
         )}
       >
-        <div className="whitespace-pre-wrap break-words">
-          {text}
-          {isStreaming && !isUser && (
-            <span className="typing-cursor" />
-          )}
+        <div className="space-y-2 break-words [&_*]:max-w-full [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {text || ""}
+          </ReactMarkdown>
         </div>
+        {isStreaming && !isUser && (
+          <span className="typing-cursor" />
+        )}
       </div>
       {isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seafoam/40">
@@ -6017,208 +5812,75 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
 }
 </file>
 
-<file path="components/header.tsx">
+<file path="components/chat-sidebar.tsx">
 "use client"
 
-import { useState } from "react"
+import React from "react"
+
+import type { UIMessage } from "ai"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { AccountDialog } from "@/components/account-dialog"
 
-function LeafIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
-      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
-    </svg>
-  )
+type Conversation = {
+  id: string
+  title: string
+  model: string
+  messages: UIMessage[]
+  updatedAt: number
 }
 
-function UserIcon({ className }: { className?: string }) {
+export function ChatSidebar({
+  conversations,
+  activeId,
+  onSelect,
+  onNew,
+  onDelete,
+}: {
+  conversations: Conversation[]
+  activeId: string
+  onSelect: (id: string) => void
+  onNew: () => void
+  onDelete: (id: string) => void
+}) {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  )
-}
+    <aside className="w-72 shrink-0 border-r border-border/60 bg-card/60 backdrop-blur-md">
+      <div className="p-3">
+        <Button className="w-full" onClick={onNew}>
+          + New chat
+        </Button>
+      </div>
 
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
-}
-
-function LogOutIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" x2="9" y1="12" y2="12" />
-    </svg>
-  )
-}
-
-function HistoryIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M12 7v5l4 2" />
-    </svg>
-  )
-}
-
-export function Header() {
-  const [accountOpen, setAccountOpen] = useState(false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [userName, setUserName] = useState("")
-
-  const handleLogin = (name: string) => {
-    setIsLoggedIn(true)
-    setUserName(name)
-    setAccountOpen(false)
-  }
-
-  const handleLogout = () => {
-    setIsLoggedIn(false)
-    setUserName("")
-  }
-
-  return (
-    <>
-      <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <LeafIcon className="h-4 w-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold tracking-tight text-foreground">
-              Daedalus
-            </span>
-            <span className="hidden rounded-full border border-seafoam/40 bg-mint/60 px-2 py-0.5 text-xs font-medium text-pine sm:inline-block">
-              AI
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isLoggedIn ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-                    <Avatar className="h-9 w-9 border-2 border-seafoam">
-                      <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
-                        {userName.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56 bg-card text-card-foreground" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col gap-1">
-                      <p className="text-sm font-medium leading-none">{userName}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
-                        Daedalus User
-                      </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer">
-                    <UserIcon className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
-                    <HistoryIcon className="mr-2 h-4 w-4" />
-                    Chat History
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="cursor-pointer">
-                    <SettingsIcon className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="cursor-pointer text-destructive" onClick={handleLogout}>
-                    <LogOutIcon className="mr-2 h-4 w-4" />
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
-                onClick={() => setAccountOpen(true)}
+      <div className="px-2 pb-3">
+        <div className="space-y-1 overflow-y-auto custom-scrollbar" style={{ maxHeight: "calc(100dvh - 140px)" }}>
+          {conversations
+            .slice()
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .map(c => (
+              <div
+                key={c.id}
+                className={`group flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition
+                  ${c.id === activeId ? "bg-muted/60" : "hover:bg-muted/40"}`}
               >
-                <UserIcon className="h-4 w-4" />
-                <span className="hidden sm:inline">Sign In</span>
-              </Button>
-            )}
-          </div>
-        </div>
-      </header>
+                <button
+                  className="flex-1 text-left truncate"
+                  onClick={() => onSelect(c.id)}
+                  title={c.title}
+                >
+                  {c.title}
+                </button>
 
-      <AccountDialog
-        open={accountOpen}
-        onOpenChange={setAccountOpen}
-        onLogin={handleLogin}
-      />
-    </>
+                <button
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition"
+                  onClick={() => onDelete(c.id)}
+                  aria-label="Delete chat"
+                  title="Delete"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
+    </aside>
   )
 }
 </file>
@@ -6237,161 +5899,25 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
 }
 </file>
 
-<file path="components/welcome-screen.tsx">
-"use client"
-
-function LeafIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
-      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
-    </svg>
-  )
-}
-
-function SparklesIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      <path d="M20 3v4" />
-      <path d="M22 5h-4" />
-    </svg>
-  )
-}
-
-function CodeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  )
-}
-
-function PenIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
-    </svg>
-  )
-}
-
-function LightbulbIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-      <path d="M9 18h6" />
-      <path d="M10 22h4" />
-    </svg>
-  )
-}
-
-const suggestions = [
-  {
-    icon: SparklesIcon,
-    label: "Explain a concept",
-    prompt: "Explain quantum computing in simple terms",
-  },
-  {
-    icon: CodeIcon,
-    label: "Help me code",
-    prompt: "Write a Python function that sorts a list using merge sort",
-  },
-  {
-    icon: PenIcon,
-    label: "Draft content",
-    prompt: "Draft a professional email to schedule a meeting",
-  },
-  {
-    icon: LightbulbIcon,
-    label: "Brainstorm ideas",
-    prompt: "Give me 5 creative project ideas for learning web development",
-  },
-]
-
-interface WelcomeScreenProps {
-  onSuggestionClick: (prompt: string) => void
-}
-
-export function WelcomeScreen({ onSuggestionClick }: WelcomeScreenProps) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
-      <div className="flex flex-col items-center gap-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary shadow-lg">
-          <LeafIcon className="h-8 w-8 text-primary-foreground" />
-        </div>
-        <div className="flex flex-col gap-2">
-          <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground">
-            Welcome to Daedalus
-          </h1>
-          <p className="max-w-md text-pretty text-muted-foreground leading-relaxed">
-            Your eco-conscious AI assistant. Ask questions, generate ideas, write code, or explore any topic.
-          </p>
-        </div>
-        <div className="mt-4 grid w-full max-w-lg grid-cols-1 gap-3 sm:grid-cols-2">
-          {suggestions.map((suggestion) => (
-            <button
-              key={suggestion.label}
-              onClick={() => onSuggestionClick(suggestion.prompt)}
-              className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10">
-                <suggestion.icon className="h-4 w-4 text-primary" />
-              </div>
-              <span className="text-sm font-medium text-foreground">
-                {suggestion.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+<file path="dedalus_stuff/jsonTemplate.txt">
+{
+    "format": { "name": "conversation_bundle", "version": "1.0" },
+    "encoding": { "charset": "utf-8", "line_endings": "lf" },
+    "conversation": {
+      "name": "Dedalus Break-In prototype",
+      "name_hash_sha256": "SHA256_OF_NAME"
+    },
+    "model": {
+      "kind": "claude-opus",
+      "name": "claude-opus-4-5"
+    },
+    "messages": {
+        "LLMs": [],
+        "users": [],
+        "filepaths": [],
+        "tools": [],
+        "notes": ""
+    }
 }
 </file>
 
@@ -6801,82 +6327,6 @@ const nextConfig = {
 export default nextConfig
 </file>
 
-<file path="package.json">
-{
-  "name": "my-project",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint ."
-  },
-  "dependencies": {
-    "@ai-sdk/react": "^3.0.77",
-    "@hookform/resolvers": "^3.9.1",
-    "@radix-ui/react-accordion": "1.2.2",
-    "@radix-ui/react-alert-dialog": "1.1.4",
-    "@radix-ui/react-aspect-ratio": "1.1.1",
-    "@radix-ui/react-avatar": "1.1.2",
-    "@radix-ui/react-checkbox": "1.1.3",
-    "@radix-ui/react-collapsible": "1.1.2",
-    "@radix-ui/react-context-menu": "2.2.4",
-    "@radix-ui/react-dialog": "1.1.4",
-    "@radix-ui/react-dropdown-menu": "2.1.4",
-    "@radix-ui/react-hover-card": "1.1.4",
-    "@radix-ui/react-label": "2.1.1",
-    "@radix-ui/react-menubar": "1.1.4",
-    "@radix-ui/react-navigation-menu": "1.2.3",
-    "@radix-ui/react-popover": "1.1.4",
-    "@radix-ui/react-progress": "1.1.1",
-    "@radix-ui/react-radio-group": "1.2.2",
-    "@radix-ui/react-scroll-area": "1.2.2",
-    "@radix-ui/react-select": "2.1.4",
-    "@radix-ui/react-separator": "1.1.1",
-    "@radix-ui/react-slider": "1.2.2",
-    "@radix-ui/react-slot": "1.1.1",
-    "@radix-ui/react-switch": "1.1.2",
-    "@radix-ui/react-tabs": "1.1.2",
-    "@radix-ui/react-toast": "1.2.4",
-    "@radix-ui/react-toggle": "1.1.1",
-    "@radix-ui/react-toggle-group": "1.1.1",
-    "@radix-ui/react-tooltip": "1.1.6",
-    "ai": "^6.0.75",
-    "autoprefixer": "^10.4.20",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "1.1.1",
-    "date-fns": "4.1.0",
-    "embla-carousel-react": "8.5.1",
-    "input-otp": "1.4.1",
-    "lucide-react": "^0.544.0",
-    "next": "16.1.6",
-    "next-themes": "^0.4.6",
-    "react": "^19",
-    "react-day-picker": "8.10.1",
-    "react-dom": "^19",
-    "react-hook-form": "^7.54.1",
-    "react-resizable-panels": "^2.1.7",
-    "recharts": "2.15.0",
-    "sonner": "^1.7.1",
-    "tailwind-merge": "^2.5.5",
-    "tailwindcss-animate": "^1.0.7",
-    "vaul": "^1.1.2",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.13",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "postcss": "^8.5",
-    "tailwindcss": "^3.4.17",
-    "typescript": "5.7.3"
-  }
-}
-</file>
-
 <file path="postcss.config.mjs">
 /** @type {import('postcss-load-config').Config} */
 const config = {
@@ -7034,13 +6484,783 @@ export default config
 }
 </file>
 
-<file path="main.py">
+<file path="app/wallet/page.tsx">
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
+import { toast } from "@/hooks/use-toast"
+import { cn } from "@/lib/utils"
+import {
+  ArrowRight,
+  CircleDollarSign,
+  DownloadCloud,
+  Leaf,
+  RefreshCw,
+  ShieldCheck,
+  Wallet2,
+} from "lucide-react"
+
+type WalletData = {
+  address?: string
+  seed?: string
+  explorer_url?: string
+  file?: string
+  account_data?: {
+    Account?: string
+    Balance?: string
+    Sequence?: number
+  }
+  validated_ledger?: {
+    ledger_index?: number
+  }
+}
+
+type ApiResponse =
+  | { status: "ok"; data: any }
+  | { status: "error"; error: string }
+
+const DEFAULT_DESTINATION = "rLjd5uRaxpi84pcn9ikbiMWPGqYfLrh15w" // Every.org testnet address
+
+function formatBalance(drops?: string) {
+  if (!drops) return "—"
+  const asNumber = Number(drops)
+  if (Number.isNaN(asNumber)) return "—"
+  return `${(asNumber / 1_000_000).toFixed(2)} XRP`
+}
+
+export default function WalletPage() {
+  const [wallet, setWallet] = useState<WalletData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<"create" | "refresh" | "send" | null>(null)
+  const [seedVisible, setSeedVisible] = useState(false)
+  const [amount, setAmount] = useState("10")
+  const [destination, setDestination] = useState(DEFAULT_DESTINATION)
+
+  const hasWallet = Boolean(wallet?.address)
+
+  const balance = useMemo(() => formatBalance(wallet?.account_data?.Balance), [wallet])
+
+  async function request(
+    method: "GET" | "POST",
+    body?: Record<string, any>,
+  ): Promise<ApiResponse> {
+    const res = await fetch("/api/wallet" + (method === "GET" && body?.refresh ? "?refresh=true" : ""), {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method === "POST" ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+    })
+    return res.json()
+  }
+
+  async function loadWallet(refresh = false) {
+    setLoading(true)
+    const response = await request("GET", { refresh })
+    if (response.status === "ok") {
+      setWallet(response.data)
+    } else {
+      toast({ title: "Unable to load wallet", description: response.error, variant: "destructive" })
+      setWallet(null)
+    }
+    setLoading(false)
+  }
+
+  async function handleCreate() {
+    setBusy("create")
+    const response = await request("POST", { action: "create", force: true })
+    if (response.status === "ok") {
+      setWallet(response.data)
+      toast({ title: "Fresh testnet wallet", description: "Funded via XRPL faucet." })
+    } else {
+      toast({ title: "Creation failed", description: response.error, variant: "destructive" })
+    }
+    setBusy(null)
+  }
+
+  async function handleRefresh() {
+    setBusy("refresh")
+    await loadWallet(true)
+    setBusy(null)
+  }
+
+  async function handleSendCheck(e: React.FormEvent) {
+    e.preventDefault()
+    if (!hasWallet) {
+      toast({ title: "Create a wallet first", variant: "destructive" })
+      return
+    }
+    setBusy("send")
+    const response = await request("POST", {
+      action: "send-check",
+      destination,
+      amount,
+    })
+    if (response.status === "ok") {
+      toast({
+        title: "Check created",
+        description: `Sent ${amount} XRP to ${destination.slice(0, 6)}…`,
+      })
+    } else {
+      toast({ title: "Send failed", description: response.error, variant: "destructive" })
+    }
+    setBusy(null)
+  }
+
+  useEffect(() => {
+    loadWallet()
+  }, [])
+
+  return (
+    <div className="mosaic-bg min-h-dvh pb-16">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-10">
+        <div className="flex items-center justify-between">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-card/90 px-3 py-1.5 text-sm font-medium text-primary shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md"
+          >
+            ← Back to Chat
+          </a>
+        </div>
+
+        <div className="overflow-hidden rounded-3xl border border-primary/15 bg-white/80 shadow-xl backdrop-blur">
+          <div className="relative isolate overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-700 via-emerald-500 to-lime-400 opacity-80" />
+            <div className="absolute inset-y-0 right-[-10%] h-[120%] w-[45%] rotate-6 bg-white/15 blur-3xl" />
+            <div className="relative z-10 flex flex-col gap-3 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 text-white shadow-lg backdrop-blur">
+                  <Wallet2 className="h-6 w-6" />
+                </div>
+                <div className="space-y-1 text-white">
+                  <p className="text-sm uppercase tracking-[0.2em]">XRPL Testnet</p>
+                  <h1 className="text-3xl font-semibold leading-tight">Wallet Control Center</h1>
+                  <p className="text-sm text-white/80">
+                    Create, inspect, and send test checks using the local Python helper in <code className="rounded bg-white/15 px-1.5 py-0.5 text-xs">wallet/wallet.py</code>.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-white/15 text-white backdrop-blur">Testnet only</Badge>
+                <Badge variant="secondary" className="bg-black/20 text-white">
+                  Seed stays local
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-5">
+          <Card className="md:col-span-3 border-border/70 bg-card/90 shadow-lg">
+            <CardHeader className="flex flex-row items-start justify-between space-y-0">
+              <div>
+                <CardTitle>Wallet Snapshot</CardTitle>
+                <CardDescription>Data is read from wallet/wallets/wallet.json</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRefresh}
+                  disabled={busy === "refresh" || loading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", busy === "refresh" && "animate-spin")} />
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleCreate}
+                  disabled={busy === "create"}
+                  className="gap-2"
+                >
+                  <DownloadCloud className="h-4 w-4" />
+                  {hasWallet ? "Recreate" : "Create"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 rounded-2xl border border-border/60 bg-muted/40 p-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Address</p>
+                  <p className="font-mono text-sm break-all text-foreground">
+                    {loading ? "Loading…" : wallet?.address ?? "Not created"}
+                  </p>
+                  {wallet?.explorer_url && (
+                    <a
+                      href={wallet.explorer_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 underline underline-offset-4"
+                    >
+                      View on Testnet Explorer
+                      <ArrowRight className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Balance</p>
+                  <p className="text-2xl font-semibold text-foreground">{loading ? "—" : balance}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sequence {wallet?.account_data?.Sequence ?? "—"} · Ledger{" "}
+                    {wallet?.validated_ledger?.ledger_index ?? "—"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Seed (local only)</p>
+                    <p
+                      className={cn(
+                        "font-mono text-sm",
+                        !seedVisible && "blur-sm brightness-75 select-none",
+                      )}
+                    >
+                      {wallet?.seed ?? "Hidden"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      File: {wallet?.file ?? "wallet/wallets/wallet.json"}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSeedVisible((v) => !v)}
+                    disabled={!wallet?.seed}
+                  >
+                    {seedVisible ? "Hide" : "Reveal"}
+                  </Button>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Your seed stays on disk; the API shells into <code>wallet.py</code> for signing.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-secondary/60 px-3 py-3">
+                  <ShieldCheck className="h-5 w-5 text-emerald-700" />
+                  <div>
+                    <p className="text-sm font-medium">Seed stored on disk</p>
+                    <p className="text-xs text-muted-foreground">wallet/wallets/wallet.json</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-secondary/60 px-3 py-3">
+                  <Leaf className="h-5 w-5 text-emerald-700" />
+                  <div>
+                    <p className="text-sm font-medium">Funded via Faucet</p>
+                    <p className="text-xs text-muted-foreground">XRPL Testnet tokens only</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="md:col-span-2 border-border/70 bg-card/90 shadow-lg">
+            <CardHeader>
+              <CardTitle>Send a Test Check</CardTitle>
+              <CardDescription>
+                Builds a <code>CheckCreate</code> transaction via <code>wallet.py</code>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={handleSendCheck}>
+                <div className="space-y-2">
+                  <Label htmlFor="amount" className="flex items-center gap-2 text-sm">
+                    <CircleDollarSign className="h-4 w-4 text-emerald-700" />
+                    Amount (XRP)
+                  </Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    min="1"
+                    step="0.1"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    required
+                    placeholder="10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="destination" className="text-sm">
+                    Destination address
+                  </Label>
+                  <Input
+                    id="destination"
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    required
+                    spellCheck={false}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Pre-filled with Every.org&apos;s donation address. You can use any XRPL testnet account.
+                  </p>
+                </div>
+                <Separator />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Uses your locally stored seed to sign the check.
+                  </div>
+                  <Button type="submit" disabled={busy === "send"} className="gap-2">
+                    <ArrowRight className="h-4 w-4" />
+                    Create Check
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="components/account-dialog.tsx">
+"use client"
+
+import React from "react"
+
+import { useState } from "react"
+import { Button } from "@/components/ui/button" 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+interface AccountDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onLogin: (name: string) => void
+}
+
+export function AccountDialog({ open, onOpenChange, onLogin }: AccountDialogProps) {
+  const [mode, setMode] = useState<"signin" | "signup">("signin")
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const displayName = name || email.split("@")[0] || "User"
+    onLogin(displayName)
+    setName("")
+    setEmail("")
+    setPassword("")
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-card text-card-foreground sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl text-foreground">
+            {mode === "signin" ? "Welcome back" : "Create an account"}
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            {mode === "signin"
+              ? "Sign in to your Verdant account to continue."
+              : "Sign up for Verdant to save your conversations."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-2">
+          {mode === "signup" && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="name" className="text-foreground">Name</Label>
+              <Input
+                id="name"
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="border-border bg-background text-foreground"
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="email" className="text-foreground">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="hello@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="border-border bg-background text-foreground"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="password" className="text-foreground">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="border-border bg-background text-foreground"
+            />
+          </div>
+          <Button type="submit" className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+            {mode === "signin" ? "Sign In" : "Create Account"}
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            {mode === "signin" ? (
+              <>
+                {"Don't have an account? "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  onClick={() => setMode("signup")}
+                >
+                  Sign up
+                </button>
+              </>
+            ) : (
+              <>
+                {"Already have an account? "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  onClick={() => setMode("signin")}
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+</file>
+
+<file path="components/chat-shell.tsx">
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import type { UIMessage } from "ai"
+import { ChatContainer } from "@/components/chat-container"
+import { ChatSidebar } from "@/components/chat-sidebar"
+
+type Conversation = {
+  id: string
+  title: string
+  model: string
+  messages: UIMessage[]
+  updatedAt: number
+}
+
+const STORAGE_KEY = "daedalus_conversations_v1"
+const DEFAULT_MODEL = "openai/gpt-4o-mini"
+
+function newConversation(): Conversation {
+  const id = crypto.randomUUID()
+  return {
+    id,
+    title: "New chat",
+    model: DEFAULT_MODEL,
+    messages: [],
+    updatedAt: Date.now(),
+  }
+}
+
+function titleFromMessages(messages: UIMessage[]) {
+  const firstUser = messages.find(m => m.role === "user")?.parts?.[0]
+  // parts can vary; safest: fall back to generic title
+  return (typeof (firstUser as any)?.text === "string" && (firstUser as any).text.trim().slice(0, 32)) || "New chat"
+}
+
+export function ChatShell() {
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeId, setActiveId] = useState<string>("")
+
+  // load
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Conversation[]
+        if (parsed.length) {
+          setConversations(parsed)
+          setActiveId(parsed.sort((a,b)=>b.updatedAt-a.updatedAt)[0].id)
+          return
+        }
+      }
+    } catch {}
+    const c = newConversation()
+    setConversations([c])
+    setActiveId(c.id)
+  }, [])
+
+  // save
+  useEffect(() => {
+    if (!conversations.length) return
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations))
+  }, [conversations])
+
+  const active = useMemo(
+    () => conversations.find(c => c.id === activeId),
+    [conversations, activeId]
+  )
+
+  const createChat = () => {
+    const c = newConversation()
+    setConversations(prev => [c, ...prev])
+    setActiveId(c.id)
+  }
+
+  const deleteChat = (id: string) => {
+    setConversations(prev => {
+      const next = prev.filter(c => c.id !== id)
+      if (!next.length) {
+        const c = newConversation()
+        setActiveId(c.id)
+        return [c]
+      }
+      if (activeId === id) setActiveId(next[0].id)
+      return next
+    })
+  }
+
+  const updateActiveMessages = (messages: UIMessage[]) => {
+    setConversations(prev =>
+      prev.map(c => {
+        if (c.id !== activeId) return c
+        const nextTitle = c.title === "New chat" ? titleFromMessages(messages) : c.title
+        return { ...c, messages, title: nextTitle, updatedAt: Date.now() }
+      })
+    )
+  }
+
+  const updateActiveModel = (model: string) => {
+    setConversations(prev =>
+      prev.map(c => (c.id === activeId ? { ...c, model, updatedAt: Date.now() } : c))
+    )
+  }
+
+  if (!active) return null
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      <ChatSidebar
+        conversations={conversations}
+        activeId={activeId}
+        onSelect={setActiveId}
+        onNew={createChat}
+        onDelete={deleteChat}
+      />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <ChatContainer
+          key={active.id}
+          conversationId={active.id}  
+          initialMessages={active.messages}
+          model={active.model}
+          onModelChange={updateActiveModel}
+          onMessagesChange={updateActiveMessages}
+        />
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="components/welcome-screen.tsx">
+"use client"
+
+function LeafIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  )
+}
+
+function SparklesIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+      <path d="M20 3v4" />
+      <path d="M22 5h-4" />
+    </svg>
+  )
+}
+
+function CodeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
+  )
+}
+
+function PenIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+    </svg>
+  )
+}
+
+function LightbulbIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+    </svg>
+  )
+}
+
+const suggestions = [
+  {
+    icon: SparklesIcon,
+    label: "Explain a concept",
+    prompt: "Explain quantum computing in simple terms",
+  },
+  {
+    icon: CodeIcon,
+    label: "Help me code",
+    prompt: "Write a Python function that sorts a list using merge sort",
+  },
+  {
+    icon: PenIcon,
+    label: "Draft content",
+    prompt: "Draft a professional email to schedule a meeting",
+  },
+  {
+    icon: LightbulbIcon,
+    label: "Brainstorm ideas",
+    prompt: "Give me 5 creative project ideas for learning web development",
+  },
+]
+
+interface WelcomeScreenProps {
+  onSuggestionClick: (prompt: string) => void
+}
+
+export function WelcomeScreen({ onSuggestionClick }: WelcomeScreenProps) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+      <div className="flex flex-col items-center gap-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary shadow-lg">
+          <LeafIcon className="h-8 w-8 text-primary-foreground" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <h1 className="text-balance text-3xl font-bold tracking-tight text-foreground">
+            Welcome to Verdant
+          </h1>
+          <p className="max-w-md text-pretty text-muted-foreground leading-relaxed">
+            Your eco-conscious AI assistant. Ask questions, generate ideas, write code, or explore any topic.
+          </p>
+        </div>
+        <div className="mt-4 grid w-full max-w-lg grid-cols-1 gap-3 sm:grid-cols-2">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.label}
+              onClick={() => onSuggestionClick(suggestion.prompt)}
+              className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10">
+                <suggestion.icon className="h-4 w-4 text-primary" />
+              </div>
+              <span className="text-sm font-medium text-foreground">
+                {suggestion.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="dedalus_stuff/main.py">
 import os
 import asyncio
 from dotenv import load_dotenv
 from dedalus_labs import AsyncDedalus, DedalusRunner
+import json
 
 load_dotenv()
+
+
+
+JSON_FILE_LOCATION = os.getcwd()
+# Change this when needed
+# JSON_FILE_NAME = 
+JSON_FILE_NAME = "test_chat_info.json"
+
+def require(d, key):
+    if key not in d:
+        raise KeyError(f"Missing required key: {key}")
+    return d[key]
+
 
 async def main():
     api_key = os.getenv("DEDALUS_API_KEY")
@@ -7048,24 +7268,1046 @@ async def main():
         raise RuntimeError("Missing DEDALUS_API_KEY")
 
     client = AsyncDedalus(api_key = api_key)
+
+    chatInfoJsonPath = JSON_FILE_LOCATION + "/" + JSON_FILE_NAME
+    with open(chatInfoJsonPath, "r", encoding="utf-8") as convoInfo:
+        convoData = json.load(convoInfo)
+
+    require(convoData, "conversation")
+    require(convoData, "model")
+    require(convoData, "messages")
+
+
+    convoName = convoData["conversation"]["name"]
+    runningModel = convoData["model"]["name"]
+
+
+
     runner = DedalusRunner(client)
 
     response = await runner.run(
         input="Hello, what can you do?",
-        model="anthropic/claude-opus-4-5",
-    )
+        model="anthropic/claude-opus-4-5")
+
     print(response.final_output)
 
 if __name__ == "__main__":
     asyncio.run(main())
 </file>
 
+<file path="dedalus_stuff/test_chat_info.json">
+{
+    "format": { "name": "conversation_bundle", "version": "1.0" },
+    "encoding": { "charset": "utf-8", "line_endings": "lf" },
+    "conversation": {
+      "name": "Dedalus Break-In prototype",
+      "name_hash_sha256": "SHA256_OF_NAME"
+    },
+    "model": {
+      "kind": "claude-opus",
+      "name": "claude-opus-4-5"
+    },
+    "messages": {
+        "messages": [],
+        "filepaths": [],
+        "tools": [],
+        "notes": ""
+    }
+}
+</file>
+
+<file path="wallet/wallet.py">
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict
+
+import xrpl
+from xrpl.clients import JsonRpcClient
+from xrpl.models.requests.account_info import AccountInfo
+from xrpl.models.transactions import CheckCreate
+from xrpl.transaction import (
+    XRPLReliableSubmissionException,
+    submit_and_wait,
+)
+from xrpl.wallet import Wallet, generate_faucet_wallet
+
+JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
+DEFAULT_WALLET_FILE = Path(__file__).resolve().parent / "wallets" / "wallet.json"
+EVERY_DONATE_ADDRESS = "rLjd5uRaxpi84pcn9ikbiMWPGqYfLrh15w"
+
+client = JsonRpcClient(JSON_RPC_URL)
+
+
+def _write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def create_wallet(wallet_file: Path = DEFAULT_WALLET_FILE) -> Dict[str, Any]:
+    wallet = generate_faucet_wallet(client, debug=False)
+    account_info = AccountInfo(
+        account=wallet.classic_address,
+        ledger_index="validated",
+        strict=True,
+    )
+    response = client.request(account_info)
+    payload = response.result
+    payload["seed"] = wallet.seed
+
+    _write_json(wallet_file, payload)
+
+    return {
+        "address": wallet.classic_address,
+        "seed": wallet.seed,
+        "file": str(wallet_file),
+        "account_data": payload.get("account_data"),
+        "explorer_url": f"https://testnet.xrpl.org/accounts/{wallet.classic_address}",
+    }
+
+
+def load_wallet(wallet_file: Path = DEFAULT_WALLET_FILE) -> Dict[str, Any]:
+    if not wallet_file.exists():
+        raise FileNotFoundError(
+            f"Wallet file not found. Expected one at {wallet_file}. Run `create` first."
+        )
+
+    raw = json.loads(wallet_file.read_text(encoding="utf-8"))
+    account_data = raw.get("account_data", {})
+
+    return {
+        "address": account_data.get("Account"),
+        "seed": raw.get("seed"),
+        "file": str(wallet_file),
+        "account_data": account_data,
+        "validated_ledger": raw.get("validated_ledger"),
+        "explorer_url": f"https://testnet.xrpl.org/accounts/{account_data.get('Account')}"
+        if account_data.get("Account")
+        else None,
+        "raw": raw,
+    }
+
+
+def refresh_account_info(address: str) -> Dict[str, Any]:
+    account_info = AccountInfo(
+        account=address,
+        ledger_index="validated",
+        strict=True,
+    )
+    response = client.request(account_info)
+    return response.result
+
+
+def send_check(wallet_file: Path, amount: str, destination: str) -> Dict[str, Any]:
+    wallet_payload = load_wallet(wallet_file)
+    seed = wallet_payload.get("seed")
+    if not seed:
+        raise ValueError("Wallet seed missing from wallet file.")
+
+    wallet = Wallet.from_seed(seed)
+    check_tx = CheckCreate(
+        account=wallet.address,
+        send_max=amount,
+        destination=destination,
+    )
+
+    try:
+        response = submit_and_wait(check_tx, client, wallet)
+        result = response.result
+    except XRPLReliableSubmissionException as exc:
+        raise RuntimeError(f"Submit failed: {exc}") from exc
+
+    return {
+        "tx_hash": result.get("hash"),
+        "destination": destination,
+        "amount": amount,
+        "engine_result": result.get("engine_result"),
+        "result": result,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="XRPL testnet wallet helper")
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    create_parser = subparsers.add_parser("create", help="Create and fund a Testnet wallet")
+    create_parser.add_argument(
+        "--wallet-file",
+        default=DEFAULT_WALLET_FILE,
+        type=Path,
+        help="Path to wallet JSON file",
+    )
+    create_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing wallet file",
+    )
+
+    info_parser = subparsers.add_parser("info", help="Read wallet info")
+    info_parser.add_argument(
+        "--wallet-file",
+        default=DEFAULT_WALLET_FILE,
+        type=Path,
+        help="Path to wallet JSON file",
+    )
+    info_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Refresh on-ledger account data",
+    )
+
+    send_parser = subparsers.add_parser("send-check", help="Send a CheckCreate transaction")
+    send_parser.add_argument(
+        "--wallet-file",
+        default=DEFAULT_WALLET_FILE,
+        type=Path,
+        help="Path to wallet JSON file",
+    )
+    send_parser.add_argument("--destination", required=True)
+    send_parser.add_argument("--amount", required=True, help="Amount in XRP for the check")
+
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+
+    try:
+        if args.command == "create":
+            if args.wallet_file.exists() and not args.force:
+                data = load_wallet(args.wallet_file)
+            else:
+                data = create_wallet(args.wallet_file)
+        elif args.command == "info":
+            data = load_wallet(args.wallet_file)
+            if args.refresh and data.get("address"):
+                refreshed = refresh_account_info(data["address"])
+                data["account_data"] = refreshed.get("account_data")
+                data["validated_ledger"] = refreshed.get("validated_ledger")
+        elif args.command == "send-check":
+            data = send_check(args.wallet_file, str(args.amount), args.destination)
+        else:
+            raise ValueError(f"Unsupported command: {args.command}")
+
+        print(json.dumps({"status": "ok", "data": data}))
+    except Exception as exc:  # pylint: disable=broad-except
+        print(json.dumps({"status": "error", "error": str(exc)}))
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path=".env.example">
+DEDALUS_API_KEY=your-dedalus-api-key
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=change-me-to-a-random-string
+DEV_LOGIN_ENABLED=true
+</file>
+
+<file path=".env.local">
+# NextAuth secret generated on 2026-02-07
+NEXTAUTH_SECRET=ElfR-OMCGadBJGWBw4ybe8ZpxlWap0vatpAqFUOgbls
+NEXTAUTH_URL=http://localhost:3000
+
+# Fill these with your real Google OAuth app credentials
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+
+# Dev credentials provider is always enabled for local testing
+DEV_LOGIN_ENABLED=true
+</file>
+
+<file path="app/api/chat/route.ts">
+import {
+  consumeStream,
+  convertToModelMessages,
+  streamText,
+  type UIMessage,
+} from "ai"
+
+// import Dedalus from 'dedalus-labs';
+// import { DedalusRunner } from 'dedalus-labs';
+
+import { createOpenAI } from "@ai-sdk/openai";
+
+export const maxDuration = 60
+// const client = new Dedalus();
+// const runner = new DedalusRunner(client);
+
+const dedalus = createOpenAI({
+  apiKey: process.env.DEDALUS_API_KEY,       
+  baseURL: "https://api.dedaluslabs.ai/v1", 
+});
+
+const SYSTEM_PROMPT = 
+`You are an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.
+You have a warm, grounded personality inspired by nature and sustainability.
+You provide clear, well-structured responses with practical advice.
+You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.
+Always be concise yet thorough. Use markdown formatting when it helps clarity.`
+
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+
+const ALLOWED_MODELS = new Set<string>([
+  "openai/gpt-4o-mini",
+  "anthropic/claude-opus-4-5",
+  "google/gemini-1.5-pro",
+]);
+
+export async function POST(req: Request) {
+  const { messages, model }: { messages: UIMessage[]; model?: string} = 
+  await req.json()
+
+  const chosenModel = model && ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
+
+  const result = streamText({
+    model: dedalus(chosenModel),
+    system: SYSTEM_PROMPT,
+    messages: await convertToModelMessages(messages),
+    abortSignal: req.signal,
+  })
+
+  return result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    consumeSseStream: consumeStream,
+  })
+}
+</file>
+
+<file path="components/chat-container.tsx">
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+import { useChat } from "@ai-sdk/react"
+import { DefaultChatTransport } from "ai"
+import { ChatMessage } from "@/components/chat-message"
+import { ChatInput } from "@/components/chat-input"
+import { WelcomeScreen } from "@/components/welcome-screen"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+
+// Rough footprint estimation constants
+// Assumes ~4 characters per token and ~0.5 milligrams CO2e per token
+const CHARS_PER_TOKEN = 4
+const KG_PER_TOKEN = 0.0000005
+
+function formatFootprint(kg: number) {
+  if (kg >= 0.001) {
+    return `${kg.toFixed(3)} kg CO₂e`
+  }
+  return `${(kg * 1000).toFixed(2)} g CO₂e`
+}
+
+const transport = new DefaultChatTransport({ api: "/api/chat" })
+
+export function ChatContainer() {
+  const [input, setInput] = useState("")
+  const [model, setModel] = useState("openai/gpt-4o-mini")
+
+  const [dashboardOpen, setDashboardOpen] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const { messages, sendMessage, status } = useChat({transport, })
+
+  const isLoading = status === "streaming" || status === "submitted"
+
+  // Estimate carbon footprint based on total characters exchanged
+  const charCount = messages.reduce((total, message) => {
+    const chars = message.parts
+      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text.length)
+      .reduce((a, b) => a + b, 0) ?? 0
+
+    return total + chars
+  }, 0)
+  const tokenEstimate = charCount / CHARS_PER_TOKEN
+  const footprintKg = tokenEstimate * KG_PER_TOKEN
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  const handleSubmit = () => {
+    if (!input.trim() || isLoading) return
+    sendMessage(
+      { text: input },
+      { body: {model} }
+    )
+    setInput("")
+  }
+
+  const handleSuggestionClick = (prompt: string) => {
+    sendMessage(
+      { text: prompt },
+      { body: {model} }
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setDashboardOpen(true)}
+        className="fixed right-3 top-3 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
+        aria-label="Open carbon footprint dashboard"
+      >
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span aria-hidden>🌿</span>
+        </div>
+        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+          Footprint: {formatFootprint(footprintKg)}
+        </span>
+      </button>
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {messages.length === 0 ? (
+          <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
+        ) : (
+          <div className="mx-auto max-w-3xl py-6">
+            {messages.map((message, index) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                isStreaming={
+                  isLoading &&
+                  index === messages.length - 1 &&
+                  message.role === "assistant"
+                }
+              />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
+      <ChatInput
+        input={input}
+        onInputChange={setInput}
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        model={model}
+        onModelChange={setModel}
+      />
+
+      <Dialog open={dashboardOpen} onOpenChange={setDashboardOpen}>
+        <DialogContent className="max-w-lg bg-card text-card-foreground">
+          <DialogHeader>
+            <DialogTitle>Carbon Dashboard</DialogTitle>
+            <DialogDescription>
+              Quick snapshot of the estimated footprint for this chat session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-border/70 bg-background p-4">
+              <p className="text-xs text-muted-foreground">Session footprint</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{formatFootprint(footprintKg)}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background p-4">
+              <p className="text-xs text-muted-foreground">Estimated tokens</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{Math.max(0, Math.round(tokenEstimate)).toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background p-4">
+              <p className="text-xs text-muted-foreground">Characters processed</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{charCount.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background p-4">
+              <p className="text-xs text-muted-foreground">Messages exchanged</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{messages.length}</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 text-sm text-foreground">
+            🌱 Tip: Shorter prompts and specific questions usually reduce token use and footprint.
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+</file>
+
+<file path="components/chat-input.tsx">
+"use client"
+
+import React from "react"
+
+import { useRef, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+function SendIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m22 2-7 20-4-9-9-4Z" />
+      <path d="M22 2 11 13" />
+    </svg>
+  )
+}
+
+interface ChatInputProps {
+  input: string
+  onInputChange: (value: string) => void
+  onSubmit: () => void
+  isLoading: boolean
+  model: string
+  onModelChange: (value: string) => void
+}
+
+export function ChatInput({ 
+  input, onInputChange, onSubmit, 
+  isLoading, model, onModelChange }: ChatInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
+    }
+  }, [input])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      if (input.trim() && !isLoading) {
+        onSubmit()
+      }
+    }
+  }
+
+  return (
+    <div className="border-t border-border/60 bg-card/80 backdrop-blur-md p-4">
+      <div className="mx-auto max-w-3xl">
+        {/* model selection dropdown */}
+        {/* <div className="mb-2">
+          <div className="relative">
+            <select
+              value={model}
+              onChange={(e) => onModelChange(e.target.value)}
+              disabled={isLoading}
+              className="
+                w-full appearance-none
+                rounded-full
+                border border-border/70
+                bg-muted/20
+                px-4 py-3 pr-11 text-sm
+                shadow-sm
+                transition
+                hover:bg-muted/30 hover:border-border
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            >
+              <option value="openai/gpt-4o-mini">OpenAI · GPT-4o mini</option>
+              <option value="anthropic/claude-3-5-sonnet">Anthropic · Claude 3.5 Sonnet</option>
+              <option value="google/gemini-1.5-pro">Google · Gemini 1.5 Pro</option>
+            </select>
+
+            <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-background/70 border border-border/60">
+                <svg className="h-4 w-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div> */}
+
+        <div className="mb-2">
+          <Select value={model} onValueChange={onModelChange} disabled={isLoading}>
+            <SelectTrigger className="w-full rounded-full bg-muted/20 px-4 py-6 shadow-sm">
+              <SelectValue placeholder="Choose a model" />
+            </SelectTrigger>
+
+            <SelectContent className="rounded-2xl">
+              <SelectItem value="openai/gpt-4o-mini">OpenAI · GPT-4o mini</SelectItem>
+              <SelectItem value="anthropic/claude-opus-4-5">Anthropic · Claude 3.5 Sonnet</SelectItem>
+              <SelectItem value="google/gemini-1.5-pro">Google · Gemini 1.5 Pro</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-end gap-3 rounded-2xl border border-border bg-background p-2 
+        shadow-sm transition-shadow focus-within:shadow-md focus-within:border-primary/40">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything..."
+            rows={1}
+            disabled={isLoading}
+            className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-2 
+            text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+            aria-label="Chat message input"
+          />
+          <Button
+            onClick={onSubmit}
+            disabled={!input.trim() || isLoading}
+            size="sm"
+            className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 
+            disabled:opacity-40"
+            aria-label="Send message"
+          >
+            {isLoading ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground 
+              border-t-transparent" />
+            ) : (
+              <SendIcon className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Models may produce inaccurate information. Verify important facts.
+        </p>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "my-project",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.26",
+    "@ai-sdk/react": "^3.0.77",
+    "@hookform/resolvers": "^3.9.1",
+    "@radix-ui/react-accordion": "1.2.2",
+    "@radix-ui/react-alert-dialog": "1.1.4",
+    "@radix-ui/react-aspect-ratio": "1.1.1",
+    "@radix-ui/react-avatar": "1.1.2",
+    "@radix-ui/react-checkbox": "1.1.3",
+    "@radix-ui/react-collapsible": "1.1.2",
+    "@radix-ui/react-context-menu": "2.2.4",
+    "@radix-ui/react-dialog": "1.1.4",
+    "@radix-ui/react-dropdown-menu": "2.1.4",
+    "@radix-ui/react-hover-card": "1.1.4",
+    "@radix-ui/react-label": "2.1.1",
+    "@radix-ui/react-menubar": "1.1.4",
+    "@radix-ui/react-navigation-menu": "1.2.3",
+    "@radix-ui/react-popover": "1.1.4",
+    "@radix-ui/react-progress": "1.1.1",
+    "@radix-ui/react-radio-group": "1.2.2",
+    "@radix-ui/react-scroll-area": "1.2.2",
+    "@radix-ui/react-select": "2.1.4",
+    "@radix-ui/react-separator": "1.1.1",
+    "@radix-ui/react-slider": "1.2.2",
+    "@radix-ui/react-slot": "1.1.1",
+    "@radix-ui/react-switch": "1.1.2",
+    "@radix-ui/react-tabs": "1.1.2",
+    "@radix-ui/react-toast": "1.2.4",
+    "@radix-ui/react-toggle": "1.1.1",
+    "@radix-ui/react-toggle-group": "1.1.1",
+    "@radix-ui/react-tooltip": "1.1.6",
+    "ai": "^6.0.75",
+    "autoprefixer": "^10.4.20",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "1.1.1",
+    "date-fns": "4.1.0",
+    "dedalus-labs": "^0.1.0-alpha.8",
+    "embla-carousel-react": "8.5.1",
+    "input-otp": "1.4.1",
+    "lucide-react": "^0.544.0",
+    "next": "16.1.6",
+    "next-auth": "^4.24.13",
+    "next-themes": "^0.4.6",
+    "react": "^19",
+    "react-day-picker": "8.10.1",
+    "react-dom": "^19",
+    "react-hook-form": "^7.54.1",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "2.15.0",
+    "remark-gfm": "^4.0.1",
+    "repomix": "^1.11.1",
+    "sonner": "^1.7.1",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
+    "vaul": "^1.1.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8.5",
+    "tailwindcss": "^3.4.17",
+    "typescript": "5.7.3"
+  }
+}
+</file>
+
+<file path="app/layout.tsx">
+import React from "react"
+import type { Metadata, Viewport } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
+
+import './globals.css'
+import { Toaster } from "@/components/ui/toaster"
+import { AuthProvider } from "@/components/providers/session-provider"
+import { ThemeProvider } from "@/components/theme-provider"
+
+const geistSans = Geist({
+  subsets: ['latin'],
+  variable: '--font-geist-sans',
+})
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  variable: '--font-geist-mono',
+})
+
+export const metadata: Metadata = {
+  title: '',
+  description: 'A sustainable prompting interface powered by your LLM of choice. Explore intelligent conversations with sustainability in mind.' + 
+  'Our modular platform allows for any organization to verify carbon offsetting to eco-ify their LLM usage.',
+}
+
+export const viewport: Viewport = {
+  themeColor: '#3d7a4f',
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <AuthProvider>
+            {children}
+            <Toaster />
+          </AuthProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
+</file>
+
+<file path="components/header.tsx">
+"use client"
+
+import React from "react"
+import { signIn, signOut, useSession } from "next-auth/react"
+import { useTheme } from "next-themes"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+
+function LeafIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  )
+}
+
+function UserIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  )
+}
+
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function WalletIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1" />
+      <path d="M17 12h4" />
+      <path d="M7 12h.01" />
+      <path d="M13 12h2" />
+      <path d="M17 9h4" />
+      <path d="M17 15h4" />
+    </svg>
+  )
+}
+
+function LogOutIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
+    </svg>
+  )
+}
+
+function HistoryIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  )
+}
+
+export function Header() {
+  const { data: session, status } = useSession()
+  const isLoggedIn = status === "authenticated"
+  const userName = session?.user?.name || session?.user?.email || "User"
+  const userInitial = userName.charAt(0).toUpperCase()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => setMounted(true), [])
+
+  const isDark = theme === "dark"
+
+  return (
+    <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <LeafIcon className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <span className="text-lg font-semibold tracking-tight text-foreground">
+            Daedalus
+          </span>
+          <span className="hidden rounded-full border border-seafoam/40 bg-mint/60 px-2 py-0.5 text-xs font-medium text-pine sm:inline-block">
+            AI
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {mounted && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex gap-2"
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+              aria-label="Toggle theme"
+            >
+              {isDark ? "🌙 Dark" : "☀️ Light"}
+            </Button>
+          )}
+          <Link href="/wallet" className="hidden sm:inline">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
+            >
+              <WalletIcon className="h-4 w-4" />
+              Wallet
+            </Button>
+          </Link>
+          {isLoggedIn ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                  <Avatar className="h-9 w-9 border-2 border-seafoam">
+                    <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
+                      {userInitial}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56 bg-card text-card-foreground" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-medium leading-none">{userName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">
+                      Signed in
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="cursor-pointer">
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
+                  <HistoryIcon className="mr-2 h-4 w-4" />
+                  Chat History
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">
+                  <SettingsIcon className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive"
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                >
+                  <LogOutIcon className="mr-2 h-4 w-4" />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground bg-transparent"
+              onClick={() => signIn()}
+            >
+              <UserIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign In</span>
+            </Button>
+          )}
+        </div>
+      </div>
+    </header>
+  )
+}
+</file>
+
+<file path="env_costs.py">
+cost_per_token = {
+    "anthropic/claude-opus-4-5":        {"input": 6.50e-06,  "output": 32.50e-06},
+    "anthropic/claude-opus-4-5-20250929": {"input": 6.50e-06, "output": 32.50e-06},
+    "openai/gpt-5":                     {"input": 1.25e-06, "output": 10.00e-06},
+    "openai/gpt-4o":                    {"input": 3.00e-06, "output": 12.00e-06},
+    "deepseek/deepseek-chat":          {"input": 0.182e-06, "output": 0.364e-06},
+    "deepseek/deepseek-coder":         {"input": 0.182e-06, "output": 0.364e-06},
+    "openai/gpt-5-codex":               {"input": 1.25e-06, "output": 10.00e-06},
+    "anthropic/claude-sonnet-4-5-20250929": {"input": 3.90e-06, "output": 19.50e-06},
+    "xai/grok-code-fast-1":             {"input": 0.20e-06, "output": 0.50e-06},
+    "anthropic/claude-haiku-4-5-20251001": {"input": 1.00e-06, "output": 5.00e-06},
+    "google/gemini-2.5-flash":          {"input": 0.60e-06, "output": 4.50e-06},
+    "openai/gpt-5-mini":                {"input": 0.25e-06, "output": 2.00e-06},
+    "openai/gpt-5-nano":                {"input": 0.05e-06, "output": 0.40e-06},
+    "xai/grok-4-fast-non-reasoning":    {"input": 0.20e-06, "output": 0.50e-06},
+    "google/gemini-2.5-pro":            {"input": 1.25e-06, "output": 10.00e-06},
+    "google/gemini-2.0-flash":          {"input": 0.60e-06, "output": 4.50e-06},
+    "openai/gpt-4-32k":                 {"input": 3.00e-06, "output": 12.00e-06}
+}
+def get_cost(model, input_token, output_token):
+   return .14*(cost_per_token[model]["input"]*input_token +  cost_per_token[model]["output"]*output_token)
+</file>
+
 <file path=".gitignore">
 /HeavyFingersTartanHacks
+wallet.json
+todo.md
 .env
 package-lock.json
 /node_modules
 /.next
+/dedalus_stuff/conversations
+
+repomix-output.xml
 </file>
 
 <file path="README.md">
@@ -7083,8 +8325,56 @@ Make a .env file in this directory
 
 Put this line in it: DEDALUS_API_KEY=dsk-test-.....
 
+Google Login (NextAuth):
+- Create Google OAuth credentials (Web app) and add redirect URI: http://localhost:3000/api/auth/callback/google
+- Add to your .env:
+  - GOOGLE_CLIENT_ID=...
+  - GOOGLE_CLIENT_SECRET=...
+  - NEXTAUTH_URL=http://localhost:3000
+  - NEXTAUTH_SECRET=<random string>
+
 Frontend:
 npm install --legacy-peer-deps
+</file>
+
+<file path="every_donate.py">
+import requests
+import json 
+
+charities = {"earthday.org": "133798288", 
+             "GivePact":"920504087",
+             "Environmental Defense Fund":"116107128"}
+
+def get_donate_address(nonprofit_ein, name, email):
+    payload = {
+        "ein": charities[nonprofit_ein],
+        "asset": "XRP",
+        "network": "Ripple",
+        "share_data": True,
+        "donor_name": name,
+        "donor_email": email
+    } 
+
+    link = "https://api.givepact.io/v1/donate"
+    header ={"Content-Type": "application/json"}
+    response = requests.post(link, headers=header, data=json.dumps(payload))
+
+    if(response.status_code != 200): print(response.status_code)
+
+    response_json = response.json()
+
+    deposit_addr = response_json["address"]
+
+
+    """debug_link = f"https://api.givepact.io/v1/verify?address={deposit_addr}"
+    debug_response = requests.get(debug_link)
+    if(debug_response.status !=200): return None
+    debug_response_json = debug_response.json()
+    print(debug_response_json)"""
+
+    return deposit_addr 
+
+print(get_donate_address("earthday.org", "B", "E@e.org"))
 </file>
 
 </files>
