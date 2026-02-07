@@ -205,9 +205,23 @@ export function ChatContainer() {
     [],
   )
 
-  const { messages, sendMessage, setMessages, status, error, clearError } = useChat({
-    transport,
-  })
+  type UsageShape = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+  type UIMessageWithUsage = UIMessage & { usage?: UsageShape | unknown }
+
+  function coerceUsageTotalTokens(value: unknown): number {
+    if (!value || typeof value !== "object") return 0
+    const maybe = value as Record<string, unknown>
+    const total = maybe.total_tokens
+    return typeof total === "number" && Number.isFinite(total) ? total : 0
+  }
+
+  const { messages, sendMessage, setMessages, status, error, clearError } = useChat({ transport })
+
 
   const isLoading =
     isHydratingConversation ||
@@ -229,8 +243,16 @@ export function ChatContainer() {
 
     return total + chars
   }, 0)
-  const tokenEstimate = charCount / CHARS_PER_TOKEN
-  const footprintKg = tokenEstimate * KG_PER_TOKEN
+  const tokenEstimateFallback = charCount / CHARS_PER_TOKEN
+
+  const tokenTotalActual = messages.reduce((sum, msg) => {
+    const withUsage = msg as UIMessageWithUsage
+    return sum + coerceUsageTotalTokens(withUsage.usage)
+  }, 0)
+
+  const tokenTotal = tokenTotalActual > 0 ? tokenTotalActual : tokenEstimateFallback
+  // const tokenEstimate = charCount / CHARS_PER_TOKEN
+  const footprintKg = tokenTotal * KG_PER_TOKEN
 
   useEffect(() => {
     const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
@@ -718,9 +740,9 @@ export function ChatContainer() {
               <p className="mt-1 text-2xl font-semibold text-foreground">{formatFootprint(footprintKg)}</p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
-              <p className="text-xs text-muted-foreground">Estimated tokens</p>
+              <p className="text-xs text-muted-foreground">Token Usage</p>
               <p className="mt-1 text-2xl font-semibold text-foreground">
-                {Math.max(0, Math.round(tokenEstimate)).toLocaleString()}
+                {Math.max(0, Math.round(tokenTotal)).toLocaleString()}
               </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">

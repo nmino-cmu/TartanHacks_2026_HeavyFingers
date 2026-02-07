@@ -6,10 +6,23 @@ import {
   getActiveConversationIdForUi,
   persistPromptSnapshot,
 } from "@/lib/conversation-store"
+import { unknown } from "zod/v4"
 
 export const maxDuration = 600
 
 type StreamFinishReason = "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other"
+
+type TokenUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
+type AskQuestionResult = {
+  assistantText: string
+  finishReason: StreamFinishReason
+  usage?: TokenUsage | unknown
+}
 
 interface AskQuestionEvent {
   type?: unknown
@@ -17,6 +30,7 @@ interface AskQuestionEvent {
   text?: unknown
   message?: unknown
   finish_reason?: unknown
+  usage?: unknown
 }
 
 interface ConversationLockQueue {
@@ -217,7 +231,9 @@ async function streamFromAskQuestionScript(
   onToken: (token: string) => void,
   selectedModel: string,
   useStreaming: boolean,
-): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
+): Promise<{ assistantText: string; 
+  finishReason: StreamFinishReason, 
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | unknown}> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
   const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
   const conversationJsonPath = path.join(
@@ -226,6 +242,7 @@ async function streamFromAskQuestionScript(
     "conversations",
     `${conversationId}.json`,
   )
+  let usage: unknown = undefined;
 
   const args = [
     "-u",
@@ -291,6 +308,9 @@ async function streamFromAskQuestionScript(
         if (typeof event.finish_reason === "string") {
           finishReason = normalizeFinishReason(event.finish_reason)
         }
+        if (event.usage !== undefined) {
+          usage = event.usage
+        }
         return
       }
 
@@ -345,7 +365,7 @@ async function streamFromAskQuestionScript(
         return
       }
 
-      resolve({ assistantText, finishReason })
+      resolve({ assistantText, finishReason, usage})
     })
   })
 }
@@ -543,12 +563,13 @@ export async function POST(req: Request) {
         let assistantText = ""
         let streamCompleted = false
         let modelUsedForResponse = selectedModel
+        let tokenUsage: unknown = undefined
 
         writer.write({ type: "start", messageId })
         writer.write({ type: "start-step" })
         writer.write({ type: "text-start", id: textPartId })
         try {
-          let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
+          let pythonResult: AskQuestionResult | null = null
           let lastModelError: unknown = null
           const modelCandidates = getModelFailoverChain(selectedModel)
 
@@ -633,6 +654,7 @@ export async function POST(req: Request) {
 
           finishReason = pythonResult.finishReason
           assistantText = pythonResult.assistantText
+          tokenUsage = pythonResult.usage
 
           if (!sawTokenEvent && pythonResult.assistantText) {
             enqueueToken(pythonResult.assistantText)
@@ -651,7 +673,7 @@ export async function POST(req: Request) {
                   modelName: modelUsedForResponse,
                 })
               }
-              await appendAssistantCompletion(conversationId, assistantText)
+              await appendAssistantCompletion(conversationId, assistantText, tokenUsage)
             } catch (error) {
               console.error("Failed to append assistant completion to master copy.", error)
             }

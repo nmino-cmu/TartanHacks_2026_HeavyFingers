@@ -317,13 +317,16 @@ def run_dedalus_stream(
     model: str,
     messages: list[dict],
     stream: bool,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict | None]:
     user_agent = os.getenv("DEDALUS_USER_AGENT", "").strip() or DEFAULT_USER_AGENT
     payload = {
         "model": model,
         "messages": messages,
         "stream": stream,
     }
+
+    if stream:
+        payload["stream_options"] = {"include_usage": True}
 
     request = urllib.request.Request(
         url=f"{api_base_url.rstrip('/')}/chat/completions",
@@ -355,13 +358,19 @@ def run_dedalus_stream(
                 normalized_reason = (
                     map_finish_reason(finish_reason) if isinstance(finish_reason, str) else "stop"
                 )
-                return content, normalized_reason
+
+                usage = parsed.get("usage") if isinstance(parsed, dict) else None
+                if not isinstance(usage, dict):
+                    usage = None
+
+                return content, normalized_reason, usage
 
             full_text_parts: list[str] = []
             finish_reason = "stop"
+            usage: dict | None = None
             
             def consume_chunk_payload(payload: str) -> bool:
-                nonlocal finish_reason
+                nonlocal finish_reason, usage
 
                 if payload == "[DONE]":
                     return True
@@ -374,6 +383,10 @@ def run_dedalus_stream(
 
                 if not isinstance(chunk, dict):
                     return False
+                
+                maybe_usage = chunk.get("usage")
+                if isinstance(maybe_usage, dict):
+                    usage = maybe_usage
 
                 error_obj = chunk.get("error")
                 if isinstance(error_obj, dict):
@@ -442,7 +455,7 @@ def run_dedalus_stream(
             if pending_event_lines:
                 consume_event_lines(pending_event_lines)
 
-            return "".join(full_text_parts), finish_reason
+            return "".join(full_text_parts), finish_reason, usage
 
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
@@ -599,7 +612,7 @@ def main() -> int:
     ensure_latest_user_message(api_messages, user_message)
 
     try:
-        assistant_text, finish_reason = run_dedalus_stream(
+        assistant_text, finish_reason, usage = run_dedalus_stream(
             api_key=dedalus_api_key,
             api_base_url=api_base_url,
             model=model_name,
@@ -649,7 +662,7 @@ def main() -> int:
             emit("error", message=f"Failed to update global info json: {error}")
             return 1
 
-    emit("final", text=assistant_text, finish_reason=finish_reason)
+    emit("final", text=assistant_text, finish_reason=finish_reason, usage=usage)
     return 0
 
 

@@ -23,11 +23,18 @@ interface GlobalInfoTemplate {
 
 type StoredRole = "user" | "assistant"
 
+type TokenUsage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
+
 interface StoredMessage {
   id: string
   role: StoredRole
   text: string
   created_at: string
+  usage?: TokenUsage | unknown
 }
 
 interface ConversationBundle {
@@ -173,7 +180,9 @@ function toUIMessage(message: StoredMessage): UIMessage {
     id: message.id,
     role: message.role,
     parts: [{ type: "text", text: message.text }],
-  }
+
+    ...(message.usage !== undefined ? { usage: message.usage } : {}),
+  } as UIMessage
 }
 
 function createConversationBundle(conversationId: string): ConversationBundle {
@@ -218,6 +227,7 @@ function normalizeStoredMessages(value: unknown): StoredMessage[] {
     const text = entry.text
     const id = entry.id
     const createdAt = entry.created_at
+    const usage = entry.usage
 
     if ((role !== "user" && role !== "assistant") || typeof text !== "string" || !text.trim()) {
       return []
@@ -228,6 +238,7 @@ function normalizeStoredMessages(value: unknown): StoredMessage[] {
         id: typeof id === "string" && id.length > 0 ? id : createMessageId(role),
         role,
         text,
+        usage: usage,
         created_at: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
       } satisfies StoredMessage,
     ]
@@ -658,7 +669,11 @@ export async function deleteConversationForUi(
   return loadConversationForUi(nextActiveConversationId)
 }
 
-export async function appendAssistantCompletion(conversationId: string, text: string): Promise<void> {
+export async function appendAssistantCompletion(
+  conversationId: string, 
+  text: string,
+  usage?: unknown): 
+  Promise<void> {
   if (!text.trim()) {
     return
   }
@@ -674,6 +689,7 @@ export async function appendAssistantCompletion(conversationId: string, text: st
     id: createMessageId("assistant"),
     role: "assistant",
     text,
+    usage, 
     created_at: new Date().toISOString(),
   })
 
