@@ -18,6 +18,7 @@
         "name": "next"
       }
     ],
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     }
@@ -28,6 +29,6 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
-  ],
+, "components/chat-sidebar.tsx"  ],
   "exclude": ["node_modules"]
 }

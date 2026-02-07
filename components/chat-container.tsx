@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { DefaultChatTransport, UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
 import { ChatInput } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
@@ -28,16 +28,34 @@ function formatFootprint(kg: number) {
 
 const transport = new DefaultChatTransport({ api: "/api/chat" })
 
-export function ChatContainer() {
+export function ChatContainer(
+  { conversationId, initialMessages, onMessagesChange, model, onModelChange, } : 
+  { conversationId: string
+  initialMessages: UIMessage[]
+  onMessagesChange: (messages: UIMessage[]) => void
+  model: string
+  onModelChange: (model: string) => void}
+) {
+
   const [input, setInput] = useState("")
-  const [model, setModel] = useState("openai/gpt-4o-mini")
 
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status } = useChat({transport, })
+  const chat = useChat({ transport })
+  const { messages, setMessages, sendMessage, status } = chat
 
   const isLoading = status === "streaming" || status === "submitted"
+
+  useEffect(() => {
+    onMessagesChange(messages)
+  }, [messages, onMessagesChange])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  
 
   // Estimate carbon footprint based on total characters exchanged
   const charCount = messages.reduce((total, message) => {
@@ -51,9 +69,7 @@ export function ChatContainer() {
   const tokenEstimate = charCount / CHARS_PER_TOKEN
   const footprintKg = tokenEstimate * KG_PER_TOKEN
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading) return
@@ -112,7 +128,7 @@ export function ChatContainer() {
         onSubmit={handleSubmit}
         isLoading={isLoading}
         model={model}
-        onModelChange={setModel}
+        onModelChange={onModelChange}
       />
 
       <Dialog open={dashboardOpen} onOpenChange={setDashboardOpen}>

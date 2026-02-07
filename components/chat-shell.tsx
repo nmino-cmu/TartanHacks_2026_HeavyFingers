@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { UIMessage } from "ai"
 import { ChatContainer } from "@/components/chat-container"
 import { ChatSidebar } from "@/components/chat-sidebar"
+
 
 type Conversation = {
   id: string
@@ -85,21 +86,31 @@ export function ChatShell() {
     })
   }
 
-  const updateActiveMessages = (messages: UIMessage[]) => {
-    setConversations(prev =>
-      prev.map(c => {
-        if (c.id !== activeId) return c
-        const nextTitle = c.title === "New chat" ? titleFromMessages(messages) : c.title
-        return { ...c, messages, title: nextTitle, updatedAt: Date.now() }
-      })
-    )
-  }
+  // const updateActiveMessages = (messages: UIMessage[]) => {
+  //   setConversations(prev =>
+  //     prev.map(c => {
+  //       if (c.id !== activeId) return c
+  //       const nextTitle = c.title === "New chat" ? titleFromMessages(messages) : c.title
+  //       return { ...c, messages, title: nextTitle, updatedAt: Date.now() }
+  //     })
+  //   )
+  // }
 
-  const updateActiveModel = (model: string) => {
-    setConversations(prev =>
-      prev.map(c => (c.id === activeId ? { ...c, model, updatedAt: Date.now() } : c))
-    )
-  }
+  const updateActiveMessages = useCallback((messages: UIMessage[]) => {
+  setConversations(prev =>
+    prev.map(c => {
+      if (c.id !== activeId) return c
+      const nextTitle = c.title === "New chat" ? titleFromMessages(messages) : c.title
+      return { ...c, messages, title: nextTitle, updatedAt: Date.now() }
+    })
+  )
+}, [activeId])
+
+  const updateActiveModel = useCallback((model: string) => {
+  setConversations(prev =>
+    prev.map(c => (c.id === activeId ? { ...c, model, updatedAt: Date.now() } : c))
+  )
+}, [activeId])
 
   if (!active) return null
 
