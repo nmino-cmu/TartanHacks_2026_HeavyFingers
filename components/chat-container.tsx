@@ -4,8 +4,9 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
-import { ChatInput } from "@/components/chat-input"
+import { ChatInput, type PendingAttachment } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
+import { toast } from "@/hooks/use-toast"
 import {
   Dialog,
   DialogContent,
@@ -18,14 +19,30 @@ import { useIsMobile } from "@/hooks/use-mobile"
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const ALLOWED_MODELS = new Set<string>([
+const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1"
+const CHAT_MODELS = new Set<string>([
   "anthropic/claude-opus-4-5",
-  "openai/gpt-4o-mini",
-  "google/gemini-1.5-pro",
+  "anthropic/claude-sonnet-4-5",
+  "anthropic/claude-haiku-4-5",
+  "openai/gpt-5",
+  "openai/gpt-5-mini",
+  "openai/gpt-5-nano",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
 ])
+const IMAGE_MODELS = new Set<string>(["openai/gpt-image-1", "openai/dall-e-3"])
 
 const CHARS_PER_TOKEN = 4
 const KG_PER_TOKEN = 0.0000005
+const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const MAX_OCR_ATTACHMENT_LABEL = "50 MB"
+const SUPPORTED_OCR_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
 
 interface ConversationResponse {
   conversationId: string
@@ -44,13 +61,86 @@ interface ConversationsResponse {
   conversations: ConversationSummary[]
 }
 
+interface MessageAttachment {
+  id: string
+  name: string
+  size: number
+  type: string
+}
+
+interface PendingOcrAttachment extends PendingAttachment {
+  contentBase64?: string
+  documentUrl?: string
+  kind: "file" | "url"
+}
+
+interface ChatRequestAttachment {
+  name: string
+  size: number
+  type: string
+  kind: "file" | "url"
+  contentBase64?: string
+  documentUrl?: string
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ""
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  return btoa(binary)
+}
+
+function normalizeAttachmentMime(file: File): string | null {
+  const normalizedType = file.type.toLowerCase()
+  if (SUPPORTED_OCR_MIME_TYPES.has(normalizedType)) {
+    return normalizedType
+  }
+
+  const loweredName = file.name.toLowerCase()
+  if (loweredName.endsWith(".pdf")) return "application/pdf"
+  if (loweredName.endsWith(".png")) return "image/png"
+  if (loweredName.endsWith(".jpg") || loweredName.endsWith(".jpeg")) return "image/jpeg"
+  if (loweredName.endsWith(".webp")) return "image/webp"
+  return null
+}
+
+function getAttachmentNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const pathname = parsed.pathname || ""
+    const candidate = pathname.split("/").pop() || ""
+    if (candidate.trim()) {
+      return decodeURIComponent(candidate).slice(0, 200)
+    }
+  } catch {
+    // fall through
+  }
+
+  return "linked-document"
+}
+
 function sanitizeModel(value?: string | null): string {
   if (!value) {
     return DEFAULT_MODEL
   }
 
   const trimmed = value.trim()
-  return ALLOWED_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
+  return CHAT_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
+}
+
+function sanitizeImageModel(value?: string | null): string {
+  if (!value) {
+    return DEFAULT_IMAGE_MODEL
+  }
+
+  const trimmed = value.trim()
+  return IMAGE_MODELS.has(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL
 }
 
 function formatFootprint(kg: number): string {
@@ -186,6 +276,8 @@ function formatConversationDate(isoValue: string): string {
 export function ChatContainer() {
   const [input, setInput] = useState("")
   const [model, setModel] = useState(DEFAULT_MODEL)
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
+  const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
@@ -194,7 +286,12 @@ export function ChatContainer() {
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
+  const [attachmentsByMessageId, setAttachmentsByMessageId] = useState<Record<string, MessageAttachment[]>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
+  const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
   const isMobile = useIsMobile()
 
   const transport = useMemo(
@@ -232,16 +329,23 @@ export function ChatContainer() {
   const tokenEstimate = charCount / CHARS_PER_TOKEN
   const footprintKg = tokenEstimate * KG_PER_TOKEN
 
+  const resetAttachmentUiState = useCallback(() => {
+    setPendingAttachments([])
+    setAttachmentsByMessageId({})
+    queuedAttachmentsRef.current = []
+    seenUserMessageIdsRef.current = new Set()
+  }, [])
+
   useEffect(() => {
     const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
     messagesEndRef.current?.scrollIntoView({ behavior })
   }, [messages, status])
 
   useEffect(() => {
-    if (!isMobile) {
+    if (!isMobile && !isSidebarOpen) {
       setIsSidebarOpen(true)
     }
-  }, [isMobile])
+  }, [isMobile, isSidebarOpen])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -281,10 +385,41 @@ export function ChatContainer() {
       setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
+      resetAttachmentUiState()
       return data
     },
-    [setMessages],
+    [setMessages, resetAttachmentUiState],
   )
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return
+    }
+
+    let needsUpdate = false
+    const nextAssignments: Record<string, MessageAttachment[]> = {}
+
+    for (const message of messages) {
+      if (message.role !== "user") {
+        continue
+      }
+
+      if (seenUserMessageIdsRef.current.has(message.id)) {
+        continue
+      }
+
+      seenUserMessageIdsRef.current.add(message.id)
+      const queued = queuedAttachmentsRef.current.shift() ?? []
+      if (queued.length > 0) {
+        nextAssignments[message.id] = queued
+        needsUpdate = true
+      }
+    }
+
+    if (needsUpdate) {
+      setAttachmentsByMessageId((previous) => ({ ...previous, ...nextAssignments }))
+    }
+  }, [messages])
 
   useEffect(() => {
     let isMounted = true
@@ -323,13 +458,36 @@ export function ChatContainer() {
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading || !conversationId) return
+    const attachmentSnapshot: MessageAttachment[] = pendingAttachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.type,
+    }))
+    const requestAttachments: ChatRequestAttachment[] = pendingAttachments.map((attachment) => ({
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.type,
+      kind: attachment.kind,
+      contentBase64: attachment.contentBase64,
+      documentUrl: attachment.documentUrl,
+    }))
+    queuedAttachmentsRef.current.push(attachmentSnapshot)
     sendMessage(
       { text: input },
       {
-        body: { conversationId, model },
+        body: {
+          conversationId,
+          model,
+          webSearchEnabled,
+          imageGenerationEnabled,
+          imageModel,
+          attachments: requestAttachments,
+        },
       },
     )
     setInput("")
+    setPendingAttachments([])
   }
 
   const handleSuggestionClick = (prompt: string) => {
@@ -337,7 +495,13 @@ export function ChatContainer() {
     sendMessage(
       { text: prompt },
       {
-        body: { conversationId, model },
+        body: {
+          conversationId,
+          model,
+          webSearchEnabled,
+          imageGenerationEnabled,
+          imageModel,
+        },
       },
     )
   }
@@ -384,6 +548,7 @@ export function ChatContainer() {
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
       setInput("")
+      resetAttachmentUiState()
       await refreshConversations()
 
       if (isMobile) {
@@ -480,6 +645,7 @@ export function ChatContainer() {
         setModel(sanitizeModel(data.model))
         window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
         setMessages(data.messages)
+        resetAttachmentUiState()
       }
 
       if (editingConversationId === targetConversationId) {
@@ -495,6 +661,30 @@ export function ChatContainer() {
       setIsMutatingConversation(false)
     }
   }
+
+  const activeToolStatus = useMemo(() => {
+    if (status !== "submitted") {
+      return null
+    }
+
+    const hasOcrTool = pendingAttachments.length > 0
+    const hasWebTool = webSearchEnabled
+    const hasImageTool = imageGenerationEnabled
+
+    if (hasOcrTool && hasWebTool) {
+      return "Running tools: OCR and web search..."
+    }
+    if (hasOcrTool) {
+      return "Running tool: OCR parsing..."
+    }
+    if (hasWebTool) {
+      return "Running tool: web search..."
+    }
+    if (hasImageTool) {
+      return "Running tool: image generation..."
+    }
+    return "Preparing response..."
+  }, [status, pendingAttachments.length, webSearchEnabled, imageGenerationEnabled])
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
@@ -671,9 +861,20 @@ export function ChatContainer() {
                 <ChatMessage
                   key={message.id}
                   message={message}
+                  attachments={attachmentsByMessageId[message.id] ?? []}
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
                 />
               ))}
+              {activeToolStatus ? (
+                <div className="flex gap-3 px-4 py-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-primary-foreground" />
+                  </div>
+                  <div className="max-w-[75%] rounded-2xl border border-border/60 bg-card px-4 py-3 text-sm text-card-foreground shadow-sm">
+                    {activeToolStatus}
+                  </div>
+                </div>
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -701,6 +902,96 @@ export function ChatContainer() {
           isLoading={isLoading}
           model={model}
           onModelChange={(value) => setModel(sanitizeModel(value))}
+          imageGenerationEnabled={imageGenerationEnabled}
+          onToggleImageGeneration={() => setImageGenerationEnabled((current) => !current)}
+          imageModel={imageModel}
+          onImageModelChange={(value) => setImageModel(sanitizeImageModel(value))}
+          webSearchEnabled={webSearchEnabled}
+          onToggleWebSearch={() => setWebSearchEnabled((current) => !current)}
+          attachments={pendingAttachments}
+          onAddFiles={(files) => {
+            if (!files || files.length === 0) {
+              return
+            }
+
+            void (async () => {
+              const selectedFiles = Array.from(files)
+              const supportedFiles = selectedFiles
+                .map((file) => ({ file, mimeType: normalizeAttachmentMime(file) }))
+                .filter(
+                  (entry): entry is { file: File; mimeType: string } =>
+                    typeof entry.mimeType === "string",
+                )
+
+              if (supportedFiles.length === 0) {
+                toast({
+                  title: "Unsupported file type",
+                  description: "Supported: PDF, PNG, JPG, JPEG, WEBP.",
+                  variant: "destructive",
+                })
+                return
+              }
+
+              const oversizedFiles = supportedFiles.filter(
+                ({ file }) => file.size > MAX_OCR_ATTACHMENT_BYTES,
+              )
+              if (oversizedFiles.length > 0) {
+                toast({
+                  title: "Unsupported file size",
+                  description: `Files larger than ${MAX_OCR_ATTACHMENT_LABEL} are not supported.`,
+                  variant: "destructive",
+                })
+              }
+
+              const allowedFiles = supportedFiles.filter(
+                ({ file }) => file.size > 0 && file.size <= MAX_OCR_ATTACHMENT_BYTES,
+              )
+              if (allowedFiles.length === 0) {
+                return
+              }
+
+              const preparedFiles = await Promise.all(
+                allowedFiles.map(async ({ file, mimeType }, index) => {
+                  const contentBase64 = arrayBufferToBase64(await file.arrayBuffer())
+                  return {
+                    id: `pending-file-${Date.now()}-${index}-${Math.random().toString(16).slice(2, 8)}`,
+                    name: file.name,
+                    size: file.size,
+                    type: mimeType,
+                    kind: "file",
+                    contentBase64,
+                  } satisfies PendingOcrAttachment
+                }),
+              )
+
+              setPendingAttachments((current) => [...current, ...preparedFiles])
+            })().catch((error) => {
+              console.error("Failed to prepare OCR attachment.", error)
+              toast({
+                title: "Failed to read file",
+                description: "Please try again with a different file.",
+                variant: "destructive",
+              })
+            })
+          }}
+          onAddAttachmentUrl={(url) => {
+            setPendingAttachments((current) => [
+              ...current,
+              {
+                id: `pending-link-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+                name: getAttachmentNameFromUrl(url),
+                size: 0,
+                type: "text/uri-list",
+                kind: "url",
+                documentUrl: url,
+              } satisfies PendingOcrAttachment,
+            ])
+          }}
+          onRemoveAttachment={(attachmentId) => {
+            setPendingAttachments((current) =>
+              current.filter((attachment) => attachment.id !== attachmentId),
+            )
+          }}
         />
       </div>
 

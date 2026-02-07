@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { promises as fs } from "node:fs"
 import path from "node:path"
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai"
 import {
@@ -19,6 +20,15 @@ interface AskQuestionEvent {
   finish_reason?: unknown
 }
 
+interface UploadedOcrAttachment {
+  name: string
+  size: number
+  type: string
+  kind: "file" | "url"
+  contentBase64?: string
+  documentUrl?: string
+}
+
 interface ConversationLockQueue {
   tail: Promise<void>
 }
@@ -26,36 +36,46 @@ interface ConversationLockQueue {
 const conversationLockQueues = new Map<string, ConversationLockQueue>()
 
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const RELIABLE_FALLBACK_MODEL = "openai/gpt-4o-mini"
+const RELIABLE_FALLBACK_MODEL = "openai/gpt-5-mini"
 const ENABLE_MODEL_FAILOVER = process.env.CHAT_ENABLE_MODEL_FAILOVER?.trim() === "1"
 const ENABLE_RECOVERY_LOGS = process.env.CHAT_RECOVERY_LOGS?.trim() === "1"
-const ALLOWED_MODELS = new Set<string>([
-  "anthropic/claude-opus-4-5",
-  "openai/gpt-4o-mini",
-  "google/gemini-1.5-pro",
+const DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
+const OCR_MODEL = process.env.CHAT_OCR_MODEL?.trim() || "mistral-ocr-latest"
+const WEB_SEARCH_MCP_SERVER = "akakak/parallel-search-mcp"
+const WEB_SEARCH_MODEL = process.env.CHAT_WEB_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
+const MAX_OCR_ATTACHMENTS = 5
+const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const MAX_BASE64_CHARS_PER_ATTACHMENT = Math.ceil((MAX_OCR_ATTACHMENT_BYTES * 4) / 3) + 512
+const MAX_OCR_CONTEXT_CHARS_PER_FILE = 12000
+const MAX_OCR_CONTEXT_CHARS_TOTAL = 30000
+const MAX_WEB_CONTEXT_CHARS = 12000
+const GENERATED_IMAGE_DIR = path.join(process.cwd(), "public", "generated")
+const SUPPORTED_OCR_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
 ])
+const CHAT_MODELS = new Set<string>([
+  "anthropic/claude-opus-4-5",
+  "anthropic/claude-sonnet-4-5",
+  "anthropic/claude-haiku-4-5",
+  "openai/gpt-5",
+  "openai/gpt-5-mini",
+  "openai/gpt-5-nano",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
+])
+const IMAGE_MODELS = new Set(["openai/dall-e-3", "openai/gpt-image-1"])
+const IMAGE_MODEL_FROM_ENV = process.env.CHAT_IMAGE_MODEL?.trim() || ""
+const DEFAULT_IMAGE_MODEL = IMAGE_MODELS.has(IMAGE_MODEL_FROM_ENV)
+  ? IMAGE_MODEL_FROM_ENV
+  : "openai/gpt-image-1"
+const ALLOWED_MODELS = new Set<string>([...CHAT_MODELS, ...IMAGE_MODELS])
 
-const STREAM_DELTA_DELAY_MS = Math.max(
-  0,
-  Math.min(
-    40,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "0", 10) || 0,
-  ),
-)
-const STREAM_TOKENS_PER_FLUSH = Math.max(
-  1,
-  Math.min(
-    8,
-    Number.parseInt(process.env.CHAT_STREAM_TOKENS_PER_FLUSH?.trim() || "2", 10) || 2,
-  ),
-)
-const STREAM_MAX_FLUSH_WAIT_MS = Math.max(
-  10,
-  Math.min(
-    250,
-    Number.parseInt(process.env.CHAT_STREAM_MAX_FLUSH_WAIT_MS?.trim() || "80", 10) || 80,
-  ),
-)
+const STREAM_DELTA_DELAY_MS = 10
+const STREAM_TOKENS_PER_FLUSH = 2
 
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
@@ -74,6 +94,19 @@ function sanitizeRequestedModel(value: unknown): string | null {
   }
 
   return ALLOWED_MODELS.has(trimmed) ? trimmed : null
+}
+
+function sanitizeRequestedImageModel(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  return IMAGE_MODELS.has(trimmed) ? trimmed : null
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -129,6 +162,19 @@ function normalizeFinishReason(rawReason: string): StreamFinishReason {
   }
 }
 
+function splitIntoStreamingTokens(text: string): string[] {
+  if (!text) {
+    return []
+  }
+
+  const tokens = text.match(/\s+|[^\s]+/g)
+  if (!tokens) {
+    return [text]
+  }
+
+  return tokens
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
@@ -144,6 +190,10 @@ function getErrorMessage(error: unknown): string {
 function toClientError(error: unknown): string {
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
+  if (message.includes("Missing DEDALUS_API_KEY")) {
+    return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
+  }
+
   if (message.includes("DEDALUS_API_KEY")) {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
@@ -160,7 +210,494 @@ function toClientError(error: unknown): string {
     return "Dedalus request was blocked upstream (Cloudflare). Please retry in a moment."
   }
 
+  if (normalized.includes("no valid ocr attachments")) {
+    return "No valid OCR attachments were found. Upload PDF/PNG/JPG/WEBP or add an https URL."
+  }
+
+  if (normalized.includes("ocr attachment parse failed")) {
+    return "Failed to parse one or more attachments with OCR. Try a different file or URL."
+  }
+
   return message || "Chat request failed."
+}
+
+function isImageModel(modelName: string): boolean {
+  return IMAGE_MODELS.has(modelName)
+}
+
+function normalizeBase64(value: string): string {
+  return value.replace(/^data:[^;]+;base64,/i, "").replace(/\s+/g, "")
+}
+
+function sanitizeAttachmentName(value: unknown, index: number): string {
+  if (typeof value !== "string") {
+    return `attachment-${index + 1}.pdf`
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return `attachment-${index + 1}.pdf`
+  }
+
+  return trimmed.slice(0, 200)
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
+function detectMimeFromBinary(decoded: Buffer): string | null {
+  if (decoded.length >= 5 && decoded.subarray(0, 5).toString("utf8") === "%PDF-") {
+    return "application/pdf"
+  }
+
+  if (
+    decoded.length >= 8 &&
+    decoded[0] === 0x89 &&
+    decoded[1] === 0x50 &&
+    decoded[2] === 0x4e &&
+    decoded[3] === 0x47 &&
+    decoded[4] === 0x0d &&
+    decoded[5] === 0x0a &&
+    decoded[6] === 0x1a &&
+    decoded[7] === 0x0a
+  ) {
+    return "image/png"
+  }
+
+  if (decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff) {
+    return "image/jpeg"
+  }
+
+  if (
+    decoded.length >= 12 &&
+    decoded.subarray(0, 4).toString("ascii") === "RIFF" &&
+    decoded.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp"
+  }
+
+  return null
+}
+
+function inferMimeFromUrl(url: string, hintType?: string): string | null {
+  const normalizedHint = (hintType || "").toLowerCase().trim()
+  if (SUPPORTED_OCR_MIME_TYPES.has(normalizedHint)) {
+    return normalizedHint
+  }
+
+  try {
+    const parsed = new URL(url)
+    const pathname = parsed.pathname.toLowerCase()
+    if (pathname.endsWith(".pdf")) return "application/pdf"
+    if (pathname.endsWith(".png")) return "image/png"
+    if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg"
+    if (pathname.endsWith(".webp")) return "image/webp"
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function decodeOcrAttachments(raw: unknown): UploadedOcrAttachment[] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  const attachments: UploadedOcrAttachment[] = []
+
+  for (let index = 0; index < raw.length; index += 1) {
+    if (attachments.length >= MAX_OCR_ATTACHMENTS) {
+      break
+    }
+
+    const entry = raw[index]
+    if (!entry || typeof entry !== "object") {
+      continue
+    }
+
+    const record = entry as Record<string, unknown>
+    const name = sanitizeAttachmentName(record.name, index)
+    const typeHint = typeof record.type === "string" ? record.type : ""
+    const kindValue = typeof record.kind === "string" ? record.kind : ""
+    const kind: "file" | "url" = kindValue === "url" ? "url" : "file"
+
+    if (kind === "url") {
+      const documentUrl = typeof record.documentUrl === "string" ? record.documentUrl.trim() : ""
+      if (!documentUrl || !isHttpsUrl(documentUrl)) {
+        continue
+      }
+
+      const inferredMimeType = inferMimeFromUrl(documentUrl, typeHint) || "text/uri-list"
+
+      attachments.push({
+        name,
+        size: 0,
+        type: inferredMimeType,
+        kind: "url",
+        documentUrl,
+      })
+      continue
+    }
+
+    const rawContent = typeof record.contentBase64 === "string" ? record.contentBase64 : ""
+    if (!rawContent) {
+      continue
+    }
+
+    const contentBase64 = normalizeBase64(rawContent)
+    if (!contentBase64 || contentBase64.length > MAX_BASE64_CHARS_PER_ATTACHMENT) {
+      continue
+    }
+
+    const decoded = Buffer.from(contentBase64, "base64")
+    if (decoded.length === 0 || decoded.length > MAX_OCR_ATTACHMENT_BYTES) {
+      continue
+    }
+
+    const detectedMimeType = detectMimeFromBinary(decoded)
+    if (!detectedMimeType) {
+      continue
+    }
+
+    const size =
+      typeof record.size === "number" && Number.isFinite(record.size)
+        ? Math.max(0, Math.floor(record.size))
+        : decoded.length
+
+    attachments.push({
+      name,
+      size,
+      type: detectedMimeType,
+      kind: "file",
+      contentBase64,
+    })
+  }
+
+  return attachments
+}
+
+function extractTextFragments(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value ? [value] : []
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractTextFragments(item))
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    return ["text", "content", "value", "output_text"].flatMap((key) =>
+      extractTextFragments(record[key]),
+    )
+  }
+
+  return []
+}
+
+function extractTextFromChatCompletionPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return ""
+  }
+
+  const record = payload as Record<string, unknown>
+  const choices = record.choices
+  if (!Array.isArray(choices) || choices.length === 0) {
+    return ""
+  }
+
+  const firstChoice = choices[0]
+  if (!firstChoice || typeof firstChoice !== "object") {
+    return ""
+  }
+
+  const choiceRecord = firstChoice as Record<string, unknown>
+  const message = choiceRecord.message
+  const text = extractTextFragments(message).join("")
+  if (text.trim()) {
+    return text.trim()
+  }
+
+  return extractTextFragments(choiceRecord).join("").trim()
+}
+
+function extractTextFromOcrPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return ""
+  }
+
+  const record = payload as Record<string, unknown>
+  const pagesRaw = record.pages
+  if (!Array.isArray(pagesRaw)) {
+    return ""
+  }
+
+  const markdownChunks = pagesRaw
+    .map((page, index) => {
+      if (!page || typeof page !== "object") {
+        return ""
+      }
+
+      const pageRecord = page as Record<string, unknown>
+      const markdown = typeof pageRecord.markdown === "string" ? pageRecord.markdown.trim() : ""
+      if (!markdown) {
+        return ""
+      }
+
+      const pageIndex =
+        typeof pageRecord.index === "number" && Number.isFinite(pageRecord.index)
+          ? Math.max(0, Math.floor(pageRecord.index))
+          : index
+      return `Page ${pageIndex + 1}\n${markdown}`
+    })
+    .filter((chunk) => chunk.length > 0)
+
+  return markdownChunks.join("\n\n")
+}
+
+async function buildWebSearchContext(
+  userQuery: string,
+  dedalusApiKey: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  const apiBaseUrl = process.env.DEDALUS_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+  const userAgent =
+    process.env.DEDALUS_USER_AGENT?.trim() ||
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${dedalusApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": userAgent,
+    },
+    body: JSON.stringify({
+      model: WEB_SEARCH_MODEL,
+      stream: false,
+      mcp_servers: [WEB_SEARCH_MCP_SERVER],
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a web research worker. Use available MCP tools to search and extract web content before answering. Return concise bullet points and include source URLs. If no useful results are found, return exactly NO_RESULTS.",
+        },
+        {
+          role: "user",
+          content: `Find up-to-date web information for this query and summarize it:\n${userQuery}`,
+        },
+      ],
+    }),
+    signal: abortSignal,
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`Web search context failed with status ${response.status}. ${body.slice(0, 400)}`)
+  }
+
+  const payload = (await response.json()) as unknown
+  const text = extractTextFromChatCompletionPayload(payload)
+  if (!text) {
+    throw new Error("Web search context failed: empty result.")
+  }
+
+  if (text.trim() === "NO_RESULTS") {
+    return "Web search returned no useful results."
+  }
+
+  return text.slice(0, MAX_WEB_CONTEXT_CHARS)
+}
+
+function buildGeneratedImageMarkdown(imageUrl: string, prompt: string): string {
+  const alt = prompt.trim().slice(0, 120) || "Generated image"
+  return `![${alt}](${imageUrl})`
+}
+
+async function saveGeneratedImage(base64Data: string): Promise<string> {
+  await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true })
+  const fileName = `gen-${Date.now()}-${Math.random().toString(16).slice(2, 10)}.png`
+  const filePath = path.join(GENERATED_IMAGE_DIR, fileName)
+  await fs.writeFile(filePath, Buffer.from(base64Data, "base64"))
+  return `/generated/${fileName}`
+}
+
+async function generateImageMarkdown(
+  prompt: string,
+  selectedModel: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  const dedalusApiKey = process.env.DEDALUS_API_KEY?.trim()
+  if (!dedalusApiKey) {
+    throw new Error("Missing DEDALUS_API_KEY.")
+  }
+
+  const promptText = prompt.trim()
+  if (!promptText) {
+    throw new Error("Image generation failed: prompt is empty.")
+  }
+
+  const apiBaseUrl = process.env.DEDALUS_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+  const dedalusUserAgent =
+    process.env.DEDALUS_USER_AGENT?.trim() ||
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+  const body: Record<string, unknown> = {
+    model: selectedModel,
+    prompt: promptText,
+    n: 1,
+    size: "1024x1024",
+    response_format: "b64_json",
+  }
+
+  if (selectedModel === "openai/dall-e-3") {
+    body.quality = "standard"
+  }
+
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/images/generations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${dedalusApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": dedalusUserAgent,
+    },
+    body: JSON.stringify(body),
+    signal: abortSignal,
+  })
+
+  if (!response.ok) {
+    const bodyText = await response.text()
+    throw new Error(`Image generation failed with status ${response.status}. ${bodyText.slice(0, 400)}`)
+  }
+
+  const payload = (await response.json()) as Record<string, unknown>
+  const data = Array.isArray(payload.data) ? payload.data : []
+  const first = data[0] as Record<string, unknown> | undefined
+  if (!first) {
+    throw new Error("Image generation failed: empty image payload.")
+  }
+
+  const imageUrl = typeof first.url === "string" ? first.url : ""
+  if (imageUrl) {
+    return buildGeneratedImageMarkdown(imageUrl, promptText)
+  }
+
+  const imageBase64 =
+    typeof first.b64_json === "string"
+      ? first.b64_json
+      : typeof first.b64 === "string"
+        ? first.b64
+        : ""
+  if (!imageBase64) {
+    throw new Error("Image generation failed: no image URL or base64 payload returned.")
+  }
+
+  const localImagePath = await saveGeneratedImage(imageBase64)
+  return buildGeneratedImageMarkdown(localImagePath, promptText)
+}
+
+async function parseOcrAttachment(
+  attachment: UploadedOcrAttachment,
+  dedalusApiKey: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  const apiBaseUrl = process.env.DEDALUS_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
+  const userAgent =
+    process.env.DEDALUS_USER_AGENT?.trim() ||
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/ocr`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${dedalusApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": userAgent,
+    },
+    body: JSON.stringify({
+      model: OCR_MODEL,
+      document: {
+        type: "document_url",
+        document_url:
+          attachment.kind === "url" && attachment.documentUrl
+            ? attachment.documentUrl
+            : `data:${attachment.type};base64,${attachment.contentBase64 ?? ""}`,
+      },
+      include_image_base64: false,
+    }),
+    signal: abortSignal,
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`OCR attachment parse failed with status ${response.status}. ${body.slice(0, 400)}`)
+  }
+
+  const payload = (await response.json()) as unknown
+  const extracted = extractTextFromOcrPayload(payload)
+  if (!extracted.trim()) {
+    throw new Error("OCR attachment parse failed: extracted text was empty.")
+  }
+
+  return extracted
+}
+
+async function buildOcrPromptContext(
+  attachments: UploadedOcrAttachment[],
+  dedalusApiKey: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  let totalChars = 0
+  const sections: string[] = []
+
+  for (const attachment of attachments) {
+    const parsedText = await parseOcrAttachment(attachment, dedalusApiKey, abortSignal)
+    const normalizedText = parsedText.replace(/\r\n/g, "\n").trim()
+    if (!normalizedText) {
+      continue
+    }
+
+    const remaining = MAX_OCR_CONTEXT_CHARS_TOTAL - totalChars
+    if (remaining <= 0) {
+      break
+    }
+
+    const nextChunk = normalizedText.slice(0, Math.min(MAX_OCR_CONTEXT_CHARS_PER_FILE, remaining))
+    if (!nextChunk) {
+      continue
+    }
+
+    totalChars += nextChunk.length
+    const truncated = nextChunk.length < normalizedText.length
+    const sourceLabel = attachment.kind === "url" ? "URL" : "File"
+    sections.push(
+      [
+        `${sourceLabel}: ${attachment.name}`,
+        nextChunk,
+        truncated ? "[Attachment text truncated to fit context window.]" : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+  }
+
+  if (sections.length === 0) {
+    throw new Error("OCR attachment parse failed: no text could be extracted.")
+  }
+
+  return [
+    "The user attached files or links. Use this extracted OCR context when answering.",
+    ...sections,
+  ].join("\n\n")
 }
 
 async function acquireConversationLock(conversationId: string): Promise<() => void> {
@@ -217,33 +754,33 @@ async function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-async function waitForDrainOrTimeout(
-  timeoutMs: number,
+async function waitForDrainSignal(
   signal: AbortSignal,
   setWakeDrain: (resolver: (() => void) | null) => void,
-): Promise<"drain" | "timeout"> {
-  if (timeoutMs <= 0 || signal.aborted) {
-    return "timeout"
+  timeoutMs: number,
+): Promise<void> {
+  if (signal.aborted || timeoutMs <= 0) {
+    return
   }
 
-  return await new Promise<"drain" | "timeout">((resolve) => {
+  await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       setWakeDrain(null)
       signal.removeEventListener("abort", onAbort)
-      resolve("timeout")
+      resolve()
     }, timeoutMs)
 
     const resolver = () => {
       clearTimeout(timer)
       signal.removeEventListener("abort", onAbort)
-      resolve("drain")
+      resolve()
     }
 
     const onAbort = () => {
       clearTimeout(timer)
       setWakeDrain(null)
       signal.removeEventListener("abort", onAbort)
-      resolve("timeout")
+      resolve()
     }
 
     setWakeDrain(resolver)
@@ -417,7 +954,7 @@ function isRetryableDedalusServerError(error: unknown): boolean {
 
 function getModelFailoverChain(preferredModel: string): string[] {
   if (!ENABLE_MODEL_FAILOVER) {
-    if (ALLOWED_MODELS.has(preferredModel)) {
+    if (CHAT_MODELS.has(preferredModel)) {
       return [preferredModel]
     }
     return [DEFAULT_MODEL]
@@ -427,7 +964,7 @@ function getModelFailoverChain(preferredModel: string): string[] {
   const deduped: string[] = []
 
   for (const candidate of candidates) {
-    if (!ALLOWED_MODELS.has(candidate)) {
+    if (!CHAT_MODELS.has(candidate)) {
       continue
     }
     if (!deduped.includes(candidate)) {
@@ -462,8 +999,16 @@ export async function POST(req: Request) {
       messages?: UIMessage[]
       conversationId?: unknown
       model?: unknown
+      webSearchEnabled?: unknown
+      imageGenerationEnabled?: unknown
+      imageModel?: unknown
+      attachments?: unknown
     }
     const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
+    const webSearchEnabled = requestBody.webSearchEnabled === true
+    const imageGenerationEnabled = requestBody.imageGenerationEnabled === true
+    const requestedImageModel = sanitizeRequestedImageModel(requestBody.imageModel)
+    const uploadedOcrAttachments = decodeOcrAttachments(requestBody.attachments)
     const requestedConversationIdFromBody =
       typeof requestBody.conversationId === "string" ? requestBody.conversationId : undefined
     const requestedConversationId =
@@ -487,6 +1032,8 @@ export async function POST(req: Request) {
     const requestedModel = sanitizeRequestedModel(requestBody.model)
     const selectedModel =
       requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
+    const selectedImageModel =
+      requestedImageModel || (isImageModel(selectedModel) ? selectedModel : DEFAULT_IMAGE_MODEL)
 
     releaseConversationLock = await acquireConversationLock(sanitizedRequestedConversationId)
 
@@ -519,10 +1066,55 @@ export async function POST(req: Request) {
       return Response.json({ error: "No user message found in chat payload." }, { status: 400 })
     }
 
+    const hasAttachmentPayload = Array.isArray(requestBody.attachments) && requestBody.attachments.length > 0
+    if (hasAttachmentPayload && uploadedOcrAttachments.length === 0) {
+      if (releaseConversationLock) {
+        releaseConversationLock()
+        releaseConversationLock = null
+      }
+      return Response.json({ error: "No valid OCR attachments were found in the request." }, { status: 400 })
+    }
+
+    let promptForModel = latestUserMessage
+    if (uploadedOcrAttachments.length > 0) {
+      try {
+        const attachmentContext = await buildOcrPromptContext(
+          uploadedOcrAttachments,
+          dedalusApiKey,
+          req.signal,
+        )
+        promptForModel = `${latestUserMessage}\n\n<attached_ocr_context>\n${attachmentContext}\n</attached_ocr_context>`
+      } catch (error) {
+        console.error("Failed to parse OCR attachments. Continuing without attachment context.", error)
+        logRecovery("Continuing without parsed OCR attachment context.", {
+          conversationId,
+          attachmentCount: uploadedOcrAttachments.length,
+          reason: getErrorMessage(error),
+        })
+        promptForModel = `${latestUserMessage}\n\nThe user attached files/links, but OCR extraction failed on the server. Do not infer or hallucinate document contents. Ask the user to re-upload the file or share a direct https URL and try again.`
+      }
+    }
+
+    if (webSearchEnabled) {
+      try {
+        const webContext = await buildWebSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+        if (webContext.trim()) {
+          promptForModel = `${promptForModel}\n\n<web_search_context>\n${webContext}\n</web_search_context>`
+        }
+      } catch (error) {
+        console.error("Failed to build web search context. Continuing without web context.", error)
+        logRecovery("Continuing without web search context.", {
+          conversationId,
+          reason: getErrorMessage(error),
+        })
+        promptForModel = `${promptForModel}\n\nWeb search was requested but failed on the server. Do not invent web findings. If needed, say web search is temporarily unavailable.`
+      }
+    }
+
     const stream = createUIMessageStream({
       originalMessages: messages,
       onError: (error) => {
-        console.error("askQuestion.py stream failed.", error)
+        console.error("Chat stream failed.", error)
         return toClientError(error)
       },
       execute: async ({ writer }) => {
@@ -544,11 +1136,19 @@ export async function POST(req: Request) {
           resolve()
         }
 
-        const enqueueToken = (token: string) => {
-          if (!token) {
+        const enqueueText = (text: string) => {
+          if (!text) {
             return
           }
-          pendingTokens.push(token)
+
+          const tokens = splitIntoStreamingTokens(text)
+          if (tokens.length === 0) {
+            return
+          }
+
+          for (const token of tokens) {
+            pendingTokens.push(token)
+          }
           notifyDrain()
         }
 
@@ -561,24 +1161,18 @@ export async function POST(req: Request) {
               continue
             }
 
-            let timedOut = false
             if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
-              const waitResult = await waitForDrainOrTimeout(
-                STREAM_MAX_FLUSH_WAIT_MS,
+              await waitForDrainSignal(
                 req.signal,
                 (resolver) => {
                   wakeDrain = resolver
                 },
+                16,
               )
-
-              if (waitResult === "timeout") {
-                timedOut = true
-              } else if (pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
-                continue
-              }
+              continue
             }
 
-            const chunkSize = streamClosed || timedOut
+            const chunkSize = streamClosed
               ? Math.min(STREAM_TOKENS_PER_FLUSH, pendingTokens.length)
               : STREAM_TOKENS_PER_FLUSH
             const delta = pendingTokens.splice(0, chunkSize).join("")
@@ -602,6 +1196,15 @@ export async function POST(req: Request) {
         writer.write({ type: "start-step" })
         writer.write({ type: "text-start", id: textPartId })
         try {
+          if (imageGenerationEnabled || isImageModel(selectedModel)) {
+            assistantText = await generateImageMarkdown(promptForModel, selectedImageModel, req.signal)
+            modelUsedForResponse = selectedImageModel
+            sawTokenEvent = true
+            enqueueText(assistantText)
+            streamCompleted = true
+            return
+          }
+
           let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
           let lastModelError: unknown = null
           const modelCandidates = getModelFailoverChain(selectedModel)
@@ -613,12 +1216,12 @@ export async function POST(req: Request) {
               try {
                 try {
                   pythonResult = await streamFromAskQuestionScript(
-                    latestUserMessage,
+                    promptForModel,
                     conversationId,
                     req.signal,
                     (token) => {
                       sawTokenEvent = true
-                      enqueueToken(token)
+                      enqueueText(token)
                     },
                     candidateModel,
                     true,
@@ -635,12 +1238,12 @@ export async function POST(req: Request) {
                   })
 
                   pythonResult = await streamFromAskQuestionScript(
-                    latestUserMessage,
+                    promptForModel,
                     conversationId,
                     req.signal,
                     (token) => {
                       sawTokenEvent = true
-                      enqueueToken(token)
+                      enqueueText(token)
                     },
                     candidateModel,
                     false,
@@ -689,7 +1292,7 @@ export async function POST(req: Request) {
           assistantText = pythonResult.assistantText
 
           if (!sawTokenEvent && pythonResult.assistantText) {
-            enqueueToken(pythonResult.assistantText)
+            enqueueText(pythonResult.assistantText)
           }
           streamCompleted = true
         } finally {

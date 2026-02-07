@@ -30,7 +30,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "When appropriate, you weave in eco-friendly perspectives without being preachy.\n"
     "You provide clear, well-structured responses with practical advice.\n"
     "You are capable of helping with coding, writing, analysis, brainstorming, and any general knowledge questions.\n"
-    "Always be concise yet thorough. Use markdown formatting when it helps clarity."
+    "Always be concise yet thorough. Use markdown formatting when it helps clarity. \n"
+    "Your capabilities include normal chat functions, and parsing 200<mb pdfs of pure text. \n"
 )
 DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
