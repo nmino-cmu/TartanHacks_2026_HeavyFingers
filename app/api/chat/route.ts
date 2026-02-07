@@ -49,6 +49,13 @@ const STREAM_TOKENS_PER_FLUSH = Math.max(
     Number.parseInt(process.env.CHAT_STREAM_TOKENS_PER_FLUSH?.trim() || "2", 10) || 2,
   ),
 )
+const STREAM_MAX_FLUSH_WAIT_MS = Math.max(
+  10,
+  Math.min(
+    250,
+    Number.parseInt(process.env.CHAT_STREAM_MAX_FLUSH_WAIT_MS?.trim() || "80", 10) || 80,
+  ),
+)
 
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
@@ -206,6 +213,40 @@ async function waitFor(ms: number, signal: AbortSignal): Promise<void> {
       resolve()
     }
 
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+async function waitForDrainOrTimeout(
+  timeoutMs: number,
+  signal: AbortSignal,
+  setWakeDrain: (resolver: (() => void) | null) => void,
+): Promise<"drain" | "timeout"> {
+  if (timeoutMs <= 0 || signal.aborted) {
+    return "timeout"
+  }
+
+  return await new Promise<"drain" | "timeout">((resolve) => {
+    const timer = setTimeout(() => {
+      setWakeDrain(null)
+      signal.removeEventListener("abort", onAbort)
+      resolve("timeout")
+    }, timeoutMs)
+
+    const resolver = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", onAbort)
+      resolve("drain")
+    }
+
+    const onAbort = () => {
+      clearTimeout(timer)
+      setWakeDrain(null)
+      signal.removeEventListener("abort", onAbort)
+      resolve("timeout")
+    }
+
+    setWakeDrain(resolver)
     signal.addEventListener("abort", onAbort, { once: true })
   })
 }
@@ -513,18 +554,31 @@ export async function POST(req: Request) {
 
         const drainTokens = async () => {
           while (!streamClosed || pendingTokens.length > 0) {
-            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
+            if (pendingTokens.length === 0) {
               await new Promise<void>((resolve) => {
                 wakeDrain = resolve
               })
               continue
             }
 
-            if (pendingTokens.length === 0) {
-              continue
+            let timedOut = false
+            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
+              const waitResult = await waitForDrainOrTimeout(
+                STREAM_MAX_FLUSH_WAIT_MS,
+                req.signal,
+                (resolver) => {
+                  wakeDrain = resolver
+                },
+              )
+
+              if (waitResult === "timeout") {
+                timedOut = true
+              } else if (pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
+                continue
+              }
             }
 
-            const chunkSize = streamClosed
+            const chunkSize = streamClosed || timedOut
               ? Math.min(STREAM_TOKENS_PER_FLUSH, pendingTokens.length)
               : STREAM_TOKENS_PER_FLUSH
             const delta = pendingTokens.splice(0, chunkSize).join("")
