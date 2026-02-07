@@ -19,14 +19,15 @@ def require(d, key):
     return d[key]
 
 
-async def main():
+async def ask(message):
     api_key = os.getenv("DEDALUS_API_KEY")
     if not api_key:
         raise RuntimeError("Missing DEDALUS_API_KEY")
+    
 
     client = AsyncDedalus(api_key = api_key)
 
-    chatInfoJsonPath = JSON_FILE_LOCATION + "/dedalus_stuff/" + JSON_FILE_NAME
+    chatInfoJsonPath = JSON_FILE_LOCATION + "/" + JSON_FILE_NAME
     with open(chatInfoJsonPath, "r", encoding="utf-8") as convoInfo:
         convoData = json.load(convoInfo)
 

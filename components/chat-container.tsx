@@ -35,16 +35,17 @@ export function ChatContainer() {
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status } = useChat({transport, })
+  const { messages, sendMessage, status } = useChat({ transport })
 
   const isLoading = status === "streaming" || status === "submitted"
 
   // Estimate carbon footprint based on total characters exchanged
   const charCount = messages.reduce((total, message) => {
-    const chars = message.parts
-      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text.length)
-      .reduce((a, b) => a + b, 0) ?? 0
+    const chars =
+      message.parts
+        ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text.length)
+        .reduce((a, b) => a + b, 0) ?? 0
 
     return total + chars
   }, 0)
@@ -57,18 +58,12 @@ export function ChatContainer() {
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading) return
-    sendMessage(
-      { text: input },
-      { body: {model} }
-    )
+    sendMessage({ text: input }, { body: { model } })
     setInput("")
   }
 
   const handleSuggestionClick = (prompt: string) => {
-    sendMessage(
-      { text: prompt },
-      { body: {model} }
-    )
+    sendMessage({ text: prompt }, { body: { model } })
   }
 
   return (
@@ -82,7 +77,10 @@ export function ChatContainer() {
         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
           <span aria-hidden>🌿</span>
         </div>
-        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+        <span
+          className="whitespace-nowrap"
+          aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}
+        >
           Footprint: {formatFootprint(footprintKg)}
         </span>
       </button>
@@ -96,9 +94,7 @@ export function ChatContainer() {
                 key={message.id}
                 message={message}
                 isStreaming={
-                  isLoading &&
-                  index === messages.length - 1 &&
-                  message.role === "assistant"
+                  isLoading && index === messages.length - 1 && message.role === "assistant"
                 }
               />
             ))}
@@ -126,15 +122,21 @@ export function ChatContainer() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Session footprint</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{formatFootprint(footprintKg)}</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {formatFootprint(footprintKg)}
+              </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Estimated tokens</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{Math.max(0, Math.round(tokenEstimate)).toLocaleString()}</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {Math.max(0, Math.round(tokenEstimate)).toLocaleString()}
+              </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Characters processed</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{charCount.toLocaleString()}</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">
+                {charCount.toLocaleString()}
+              </p>
             </div>
             <div className="rounded-xl border border-border/70 bg-background p-4">
               <p className="text-xs text-muted-foreground">Messages exchanged</p>

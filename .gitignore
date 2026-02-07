@@ -2,6 +2,7 @@
 wallet.json
 todo.md
 .env
+.env.local
 package-lock.json
 /node_modules
 /.next
