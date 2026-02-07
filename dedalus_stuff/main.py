@@ -11,7 +11,7 @@ load_dotenv()
 JSON_FILE_LOCATION = os.getcwd()
 # Change this when needed
 # JSON_FILE_NAME = 
-JSON_FILE_NAME = "test_chat_info.json"
+JSON_FILE_NAME = "globalInfo.json"
 
 def require(d, key):
     if key not in d:

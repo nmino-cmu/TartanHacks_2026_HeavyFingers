@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Daedalus - Eco-Powered AI Assistant',
-  description: 'A nature-inspired AI prompting interface powered by the Daedalus LLM. Explore intelligent conversations with an eco-conscious design.',
+  title: 'Verdant - Eco-Powered AI Assistant',
+  description: 'A nature-inspired AI prompting interface powered by the Verdant assistant. Explore intelligent conversations with an eco-conscious design.',
 }
 
 export const viewport: Viewport = {

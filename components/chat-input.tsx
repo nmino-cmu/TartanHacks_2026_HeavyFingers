@@ -58,7 +58,7 @@ export function ChatInput({ input, onInputChange, onSubmit, isLoading }: ChatInp
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Daedalus anything..."
+            placeholder="Ask Verdant anything..."
             rows={1}
             disabled={isLoading}
             className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
@@ -79,7 +79,7 @@ export function ChatInput({ input, onInputChange, onSubmit, isLoading }: ChatInp
           </Button>
         </div>
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          Daedalus may produce inaccurate information. Verify important facts.
+          Verdant may produce inaccurate information. Verify important facts.
         </p>
       </div>
     </div>

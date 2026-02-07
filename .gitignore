@@ -5,3 +5,4 @@ package-lock.json
 /node_modules
 /.next
 /dedalus_stuff/conversations
+wallet*.json

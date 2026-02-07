@@ -1,11 +1,13 @@
 import argparse
+import asyncio
 import json
 import os
+import re
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
 
 try:
     from dotenv import load_dotenv
@@ -13,9 +15,17 @@ except ImportError:  # pragma: no cover - optional local dependency
     def load_dotenv() -> None:
         return None
 
+try:
+    from dedalus_labs import AsyncDedalus, DedalusRunner
+    HAS_DEDALUS_SDK = True
+except ImportError:  # pragma: no cover - optional local dependency
+    AsyncDedalus = None
+    DedalusRunner = None
+    HAS_DEDALUS_SDK = False
+
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are Daedalus, an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.\n"
+    "You are Verdant, an eco-conscious AI assistant. You are knowledgeable, helpful, and thoughtful.\n"
     "You have a warm, grounded personality inspired by nature and sustainability.\n"
     "When appropriate, you weave in eco-friendly perspectives without being preachy.\n"
     "You provide clear, well-structured responses with practical advice.\n"
@@ -24,7 +34,8 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
-DEFAULT_GLOBAL_JSON = Path("dedalus_stuff") / "test_chat_info.json"
+DEFAULT_GLOBAL_JSON = Path("dedalus_stuff") / "globalInfo.json"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 600
 
 
 def emit(event_type: str, **payload: object) -> None:
@@ -36,19 +47,117 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def make_message_id(role: str) -> str:
-    return f"{role}-{uuid4().hex[:10]}"
+def load_json_or_empty(path: Path) -> dict:
+    if not path.exists():
+        return {}
+
+    with path.open("r", encoding="utf-8") as handle:
+        raw = json.load(handle)
+
+    if isinstance(raw, dict):
+        return raw
+    return {}
 
 
-def ensure_bundle(path: Path) -> dict:
-    if path.exists():
-        with path.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+def normalize_global_info_payload(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        payload = {}
+
+    active_file_details = payload.get("activeFileDetails")
+    if not isinstance(active_file_details, dict):
+        active_file_details = {}
+
+    exists_active_raw = active_file_details.get("existsActive")
+    if isinstance(exists_active_raw, bool):
+        exists_active: bool | str = exists_active_raw
+    elif exists_active_raw == "":
+        exists_active = ""
     else:
-        raw = {}
+        exists_active = ""
 
-    if not isinstance(raw, dict):
-        raw = {}
+    active_chat_index_raw = active_file_details.get("activeChatIndex")
+    if isinstance(active_chat_index_raw, int):
+        active_chat_index: int | str = active_chat_index_raw
+    elif isinstance(active_chat_index_raw, str) and active_chat_index_raw.strip().isdigit():
+        active_chat_index = int(active_chat_index_raw.strip())
+    else:
+        active_chat_index = ""
+
+    active_json_file_path = active_file_details.get("activeJsonFilePath")
+    if not isinstance(active_json_file_path, str):
+        active_json_file_path = ""
+
+    convo_index_raw = payload.get("convoIndex")
+    try:
+        convo_index = int(convo_index_raw)
+    except (TypeError, ValueError):
+        convo_index = 0
+    if convo_index < 0:
+        convo_index = 0
+
+    carbon_footprint_raw = payload.get("carbonFootprint")
+    if isinstance(carbon_footprint_raw, (int, float)):
+        carbon_footprint = carbon_footprint_raw
+    else:
+        carbon_footprint = 0
+
+    memories_raw = payload.get("permanent memories")
+    permanent_memories = memories_raw if isinstance(memories_raw, list) else []
+    convo_name = payload.get("convoName")
+    if not isinstance(convo_name, str):
+        convo_name = ""
+
+    return {
+        "activeFileDetails": {
+            "existsActive": exists_active,
+            "activeChatIndex": active_chat_index,
+            "activeJsonFilePath": active_json_file_path,
+        },
+        "convoName": convo_name,
+        "convoIndex": convo_index,
+        "carbonFootprint": carbon_footprint,
+        "permanent memories": permanent_memories,
+    }
+
+
+def default_conversation_title(conversation_id: str) -> str:
+    match = re.match(r"^conversation(\d+)$", conversation_id, flags=re.IGNORECASE)
+    if match:
+        return f"Conversation {int(match.group(1))}"
+    return conversation_id
+
+
+def normalize_conversation_title(raw_name: str, conversation_id: str) -> str:
+    trimmed = raw_name.strip()
+    if not trimmed:
+        return default_conversation_title(conversation_id)
+
+    match = re.match(r"^conversation(\d+)$", trimmed, flags=re.IGNORECASE)
+    if match:
+        return f"Conversation {int(match.group(1))}"
+
+    return trimmed
+
+
+def save_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    with temp_path.open("w", encoding="utf-8", newline="\n") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+
+    try:
+        temp_path.replace(path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+
+def ensure_conversation_bundle(path: Path, conversation_id: str) -> dict:
+    raw = load_json_or_empty(path)
 
     conversation = raw.get("conversation")
     if not isinstance(conversation, dict):
@@ -67,15 +176,9 @@ def ensure_bundle(path: Path) -> dict:
         stored_messages = []
 
     bundle = {
-        "format": raw.get("format")
-        if isinstance(raw.get("format"), dict)
-        else {"name": "conversation_bundle", "version": "1.0"},
-        "encoding": raw.get("encoding")
-        if isinstance(raw.get("encoding"), dict)
-        else {"charset": "utf-8", "line_endings": "lf"},
         "conversation": {
-            "name": conversation.get("name", "global_conversation"),
-            "name_hash_sha256": conversation.get("name_hash_sha256", "SHA256_OF_NAME"),
+            "id": conversation.get("id", conversation_id),
+            "name": conversation.get("name", conversation_id),
             "updated_at": conversation.get("updated_at", now_iso()),
         },
         "model": {
@@ -84,9 +187,6 @@ def ensure_bundle(path: Path) -> dict:
         },
         "messages": {
             "messages": stored_messages,
-            "filepaths": messages_container.get("filepaths", []),
-            "tools": messages_container.get("tools", []),
-            "notes": messages_container.get("notes", ""),
         },
     }
 
@@ -98,29 +198,6 @@ def ensure_bundle(path: Path) -> dict:
     return bundle
 
 
-def save_bundle(path: Path, bundle: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(bundle, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-
-
-def append_message(bundle: dict, role: str, text: str) -> None:
-    text = text.strip()
-    if not text:
-        return
-
-    bundle["messages"]["messages"].append(
-        {
-            "id": make_message_id(role),
-            "role": role,
-            "text": text,
-            "created_at": now_iso(),
-        }
-    )
-    bundle["conversation"]["updated_at"] = now_iso()
-
-
 def get_system_prompt(bundle: dict) -> str:
     value = bundle.get("system_prompt")
     if isinstance(value, str) and value.strip():
@@ -128,10 +205,11 @@ def get_system_prompt(bundle: dict) -> str:
     return DEFAULT_SYSTEM_PROMPT
 
 
-def to_chat_messages(bundle: dict) -> list[dict]:
+def normalize_messages_for_api(bundle: dict) -> list[dict]:
     api_messages: list[dict] = [{"role": "system", "content": get_system_prompt(bundle)}]
+    stored = bundle["messages"]["messages"]
 
-    for entry in bundle["messages"]["messages"]:
+    for entry in stored:
         if not isinstance(entry, dict):
             continue
         role = entry.get("role")
@@ -140,6 +218,24 @@ def to_chat_messages(bundle: dict) -> list[dict]:
             api_messages.append({"role": role, "content": text})
 
     return api_messages
+
+
+def ensure_latest_user_message(api_messages: list[dict], user_message: str) -> None:
+    user_message = user_message.strip()
+    if not user_message:
+        return
+
+    if api_messages:
+        last = api_messages[-1]
+        if (
+            isinstance(last, dict)
+            and last.get("role") == "user"
+            and isinstance(last.get("content"), str)
+            and last["content"].strip() == user_message
+        ):
+            return
+
+    api_messages.append({"role": "user", "content": user_message})
 
 
 def map_finish_reason(reason: str) -> str:
@@ -166,6 +262,51 @@ def extract_error_message_from_json(raw_body: str, default: str) -> str:
     return default
 
 
+def extract_text_fragments(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value else []
+
+    if isinstance(value, list):
+        fragments: list[str] = []
+        for item in value:
+            fragments.extend(extract_text_fragments(item))
+        return fragments
+
+    if isinstance(value, dict):
+        fragments: list[str] = []
+        for key in ("text", "content", "value", "output_text"):
+            if key in value:
+                fragments.extend(extract_text_fragments(value.get(key)))
+        return fragments
+
+    return []
+
+
+def extract_stream_tokens_from_choice(choice: dict) -> list[str]:
+    raw_fragments: list[str] = []
+    raw_fragments.extend(extract_text_fragments(choice.get("delta")))
+
+    if not raw_fragments:
+        raw_fragments.extend(extract_text_fragments(choice.get("text")))
+        raw_fragments.extend(extract_text_fragments(choice.get("content")))
+        message_obj = choice.get("message")
+        if isinstance(message_obj, dict):
+            raw_fragments.extend(extract_text_fragments(message_obj.get("content")))
+        else:
+            raw_fragments.extend(extract_text_fragments(message_obj))
+
+    # Drop empties and collapse immediate duplicates from mixed provider payloads.
+    fragments: list[str] = []
+    for fragment in raw_fragments:
+        if not fragment:
+            continue
+        if fragments and fragments[-1] == fragment:
+            continue
+        fragments.append(fragment)
+
+    return fragments
+
+
 def run_dedalus_stream(
     *,
     api_key: str,
@@ -173,6 +314,7 @@ def run_dedalus_stream(
     model: str,
     messages: list[dict],
     stream: bool,
+    timeout_seconds: int,
 ) -> tuple[str, str]:
     payload = {
         "model": model,
@@ -192,7 +334,7 @@ def run_dedalus_stream(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             if not stream:
                 body = response.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body)
@@ -213,47 +355,60 @@ def run_dedalus_stream(
 
             full_text_parts: list[str] = []
             finish_reason = "stop"
+            
+            def consume_chunk_payload(payload: str) -> bool:
+                nonlocal finish_reason
+
+                if payload == "[DONE]":
+                    return True
+
+                try:
+                    chunk = json.loads(payload)
+                except json.JSONDecodeError:
+                    # Ignore malformed non-JSON chunks.
+                    return False
+
+                if not isinstance(chunk, dict):
+                    return False
+
+                error_obj = chunk.get("error")
+                if isinstance(error_obj, dict):
+                    error_message = error_obj.get("message")
+                    if isinstance(error_message, str) and error_message.strip():
+                        raise RuntimeError(error_message)
+
+                choices = chunk.get("choices")
+                if isinstance(choices, list):
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            continue
+
+                        for token in extract_stream_tokens_from_choice(choice):
+                            full_text_parts.append(token)
+                            emit("token", token=token)
+
+                        reason = choice.get("finish_reason")
+                        if isinstance(reason, str) and reason:
+                            finish_reason = map_finish_reason(reason)
+                    return False
+
+                for token in extract_text_fragments(chunk):
+                    full_text_parts.append(token)
+                    emit("token", token=token)
+
+                return False
 
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line or not line.startswith("data:"):
                     continue
 
-                data = line[len("data:") :].strip()
-                if not data:
+                payload = line[len("data:") :].strip()
+                if not payload:
                     continue
-                if data == "[DONE]":
+
+                if consume_chunk_payload(payload):
                     break
-
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-
-                if isinstance(chunk, dict):
-                    error_obj = chunk.get("error")
-                    if isinstance(error_obj, dict):
-                        error_message = error_obj.get("message")
-                        if isinstance(error_message, str) and error_message.strip():
-                            raise RuntimeError(error_message)
-
-                    choices = chunk.get("choices")
-                    if not isinstance(choices, list):
-                        continue
-
-                    for choice in choices:
-                        if not isinstance(choice, dict):
-                            continue
-                        delta = choice.get("delta")
-                        if isinstance(delta, dict):
-                            token = delta.get("content")
-                            if isinstance(token, str) and token:
-                                full_text_parts.append(token)
-                                emit("token", token=token)
-
-                        reason = choice.get("finish_reason")
-                        if isinstance(reason, str) and reason:
-                            finish_reason = map_finish_reason(reason)
 
             return "".join(full_text_parts), finish_reason
 
@@ -266,24 +421,102 @@ def run_dedalus_stream(
         raise RuntimeError(f"Failed to reach Dedalus API: {error.reason}") from error
 
 
+def build_sdk_input(messages: list[dict]) -> str:
+    lines: list[str] = []
+    for entry in messages:
+        role = entry.get("role")
+        content = entry.get("content")
+        if isinstance(role, str) and isinstance(content, str) and content.strip():
+            lines.append(f"{role.upper()}: {content}")
+
+    if not lines:
+        return ""
+
+    lines.append("ASSISTANT:")
+    return "\n".join(lines)
+
+
+def run_dedalus_with_sdk(*, api_key: str, model: str, messages: list[dict]) -> tuple[str, str]:
+    if not HAS_DEDALUS_SDK:
+        raise RuntimeError("dedalus_labs SDK is not installed.")
+
+    async def _run() -> str:
+        client = AsyncDedalus(api_key=api_key)
+        runner = DedalusRunner(client)
+        combined_input = build_sdk_input(messages)
+        response = await runner.run(input=combined_input, model=model)
+        final_output = getattr(response, "final_output", "")
+        if not isinstance(final_output, str) or not final_output.strip():
+            raise RuntimeError("Dedalus SDK returned an empty assistant response.")
+        return final_output
+
+    return asyncio.run(_run()), "stop"
+
+
+def update_global_info_json(
+    *,
+    global_json_path: Path,
+    conversation_id: str,
+    conversation_json_path: Path,
+    conversation_name: str,
+    model_name: str,
+    user_message: str,
+    assistant_text: str | None,
+    finish_reason: str | None,
+    error_message: str | None = None,
+) -> None:
+    del model_name, user_message, assistant_text, finish_reason, error_message
+    payload = normalize_global_info_payload(load_json_or_empty(global_json_path))
+
+    active_file_details = payload["activeFileDetails"]
+    active_file_details["existsActive"] = True
+    active_file_details["activeJsonFilePath"] = str(conversation_json_path)
+    payload["convoName"] = normalize_conversation_title(conversation_name, conversation_id)
+
+    match = re.match(r"^conversation(\d+)$", conversation_id, flags=re.IGNORECASE)
+    conversation_index = int(match.group(1)) if match else None
+    if conversation_index is not None:
+        active_file_details["activeChatIndex"] = conversation_index
+
+        payload["convoIndex"] = max(int(payload["convoIndex"]), conversation_index)
+
+    save_json(global_json_path, payload)
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ask Dedalus with JSON-backed memory.")
+    parser = argparse.ArgumentParser(description="Ask Dedalus with active conversation context.")
     parser.add_argument("--message", required=True, help="Latest user message.")
     parser.add_argument(
-        "--json-path",
-        default=os.getenv("GLOBAL_CONVERSATION_JSON", str(DEFAULT_GLOBAL_JSON)),
-        help="Path to the global conversation JSON file.",
+        "--conversation-json-path",
+        required=True,
+        help="Path to the active conversation JSON file.",
+    )
+    parser.add_argument(
+        "--conversation-id",
+        default=None,
+        help="Active conversation id. Defaults to the conversation json filename stem.",
+    )
+    parser.add_argument(
+        "--global-json-path",
+        default=str(DEFAULT_GLOBAL_JSON),
+        help="Path to the global info JSON file to update every turn.",
     )
     parser.add_argument(
         "--model",
         default=None,
-        help="Optional model override. Defaults to JSON model name, then DEDALUS_MODEL.",
+        help="Optional model override. Defaults to active conversation model, then DEDALUS_MODEL.",
     )
     parser.add_argument(
         "--stream",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable streaming token output.",
+    )
+    parser.add_argument(
+        "--update-global-info",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Update globalInfo.json from this script. Disabled by default to keep a single writer on the server.",
     )
     return parser.parse_args()
 
@@ -302,23 +535,45 @@ def main() -> int:
         emit("error", message="Missing DEDALUS_API_KEY.")
         return 1
 
-    json_path = Path(args.json_path).expanduser()
-    bundle = ensure_bundle(json_path)
+    conversation_json_path = Path(args.conversation_json_path).expanduser()
+    conversation_id = (
+        args.conversation_id.strip()
+        if isinstance(args.conversation_id, str) and args.conversation_id.strip()
+        else conversation_json_path.stem
+    )
+    global_json_path = Path(args.global_json_path).expanduser()
 
-    append_message(bundle, "user", user_message)
-    save_bundle(json_path, bundle)
+    conversation_bundle = ensure_conversation_bundle(conversation_json_path, conversation_id)
 
+    env_model = os.getenv("DEDALUS_MODEL", "").strip()
+    conversation_model_name = str(conversation_bundle["model"].get("name", "")).strip()
     model_name = (
         (args.model.strip() if isinstance(args.model, str) else "")
-        or str(bundle["model"].get("name", "")).strip()
-        or os.getenv("DEDALUS_MODEL", "").strip()
+        or env_model
+        or conversation_model_name
         or DEFAULT_MODEL
     )
-    bundle["model"]["name"] = model_name
-    bundle["model"]["kind"] = "dedalus"
+    if (
+        model_name.startswith("openai/")
+        and not (isinstance(args.model, str) and args.model.strip())
+        and not env_model
+    ):
+        model_name = DEFAULT_MODEL
 
     api_base_url = os.getenv("DEDALUS_API_BASE_URL", DEFAULT_API_BASE_URL).strip() or DEFAULT_API_BASE_URL
-    api_messages = to_chat_messages(bundle)
+    timeout_raw = os.getenv("DEDALUS_REQUEST_TIMEOUT_SECONDS", "").strip()
+    try:
+        timeout_seconds = int(timeout_raw) if timeout_raw else DEFAULT_REQUEST_TIMEOUT_SECONDS
+    except ValueError:
+        timeout_seconds = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    if timeout_seconds < 30:
+        timeout_seconds = 30
+
+    api_messages = normalize_messages_for_api(conversation_bundle)
+    ensure_latest_user_message(api_messages, user_message)
+
+    assistant_text: str | None = None
+    finish_reason: str | None = None
 
     try:
         assistant_text, finish_reason = run_dedalus_stream(
@@ -327,13 +582,63 @@ def main() -> int:
             model=model_name,
             messages=api_messages,
             stream=bool(args.stream),
+            timeout_seconds=timeout_seconds,
         )
     except Exception as error:  # broad by design for CLI error surface
-        emit("error", message=str(error))
+        fallback_error: Exception = error
+        if HAS_DEDALUS_SDK:
+            try:
+                assistant_text, finish_reason = run_dedalus_with_sdk(
+                    api_key=dedalus_api_key,
+                    model=model_name,
+                    messages=api_messages,
+                )
+                emit("token", token=assistant_text)
+            except Exception as sdk_error:
+                fallback_error = sdk_error
+
+        if assistant_text is None:
+            if args.update_global_info:
+                try:
+                    update_global_info_json(
+                        global_json_path=global_json_path,
+                        conversation_id=conversation_id,
+                        conversation_json_path=conversation_json_path,
+                        conversation_name=str(
+                            conversation_bundle["conversation"].get("name", "")
+                        ).strip(),
+                        model_name=model_name,
+                        user_message=user_message,
+                        assistant_text=None,
+                        finish_reason="error",
+                        error_message=str(fallback_error),
+                    )
+                except Exception:
+                    pass
+            emit("error", message=str(fallback_error))
+            return 1
+
+    if not assistant_text or not assistant_text.strip():
+        emit("error", message="Dedalus returned an empty assistant response.")
         return 1
 
-    append_message(bundle, "assistant", assistant_text)
-    save_bundle(json_path, bundle)
+    if args.update_global_info:
+        try:
+            update_global_info_json(
+                global_json_path=global_json_path,
+                conversation_id=conversation_id,
+                conversation_json_path=conversation_json_path,
+                conversation_name=str(
+                    conversation_bundle["conversation"].get("name", "")
+                ).strip(),
+                model_name=model_name,
+                user_message=user_message,
+                assistant_text=assistant_text,
+                finish_reason=finish_reason,
+            )
+        except Exception as error:
+            emit("error", message=f"Failed to update global info json: {error}")
+            return 1
 
     emit("final", text=assistant_text, finish_reason=finish_reason)
     return 0

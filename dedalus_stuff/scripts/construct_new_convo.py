@@ -14,7 +14,6 @@ def updateConvoCounter():
       json.dump(global_data, f, ensure_ascii=False, indent=2)
 
   return global_data["convoIndex"]
-    
 
 def createJsonFile(convoNum, model):
     updateConvoCounter()

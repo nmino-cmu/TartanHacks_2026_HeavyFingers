@@ -6,7 +6,7 @@ import {
   persistPromptSnapshot,
 } from "@/lib/conversation-store"
 
-export const maxDuration = 60
+export const maxDuration = 600
 
 type StreamFinishReason = "stop" | "length" | "content-filter" | "tool-calls" | "error" | "other"
 
@@ -16,6 +16,12 @@ interface AskQuestionEvent {
   text?: unknown
   message?: unknown
   finish_reason?: unknown
+}
+
+function sanitizeConversationId(value?: string | null): string | null {
+  if (!value) return null
+  const sanitized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "")
+  return sanitized.length > 0 ? sanitized : null
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -91,17 +97,59 @@ function toClientError(error: unknown): string {
   return message || "Chat request failed."
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+async function emitTextAsDeltas(
+  text: string,
+  onToken: (token: string) => void,
+  options?: { chunkSize?: number; tokenDelayMs?: number },
+): Promise<void> {
+  if (!text) return
+
+  const chunkSize = options?.chunkSize ?? 24
+  const tokenDelayMs = options?.tokenDelayMs ?? 0
+
+  for (let index = 0; index < text.length; index += chunkSize) {
+    const chunk = text.slice(index, index + chunkSize)
+    onToken(chunk)
+
+    if (tokenDelayMs > 0 && index + chunkSize < text.length) {
+      await delay(tokenDelayMs)
+    }
+  }
+}
+
 async function streamFromAskQuestionScript(
   userMessage: string,
+  conversationId: string,
   abortSignal: AbortSignal,
   onToken: (token: string) => void,
-): Promise<{ assistantText: string; finishReason: StreamFinishReason }> {
+): Promise<{ assistantText: string; finishReason: StreamFinishReason; sawTokenEvent: boolean }> {
   const scriptPath = path.join(process.cwd(), "dedalus_stuff", "scripts", "askQuestion.py")
-  const jsonPath =
-    process.env.GLOBAL_CONVERSATION_JSON?.trim() ||
-    path.join(process.cwd(), "dedalus_stuff", "test_chat_info.json")
+  const globalJsonPath = path.join(process.cwd(), "dedalus_stuff", "globalInfo.json")
+  const conversationJsonPath = path.join(
+    process.cwd(),
+    "dedalus_stuff",
+    "conversations",
+    `${conversationId}.json`,
+  )
 
-  const args = [scriptPath, "--message", userMessage, "--json-path", jsonPath, "--stream"]
+  const args = [
+    scriptPath,
+    "--message",
+    userMessage,
+    "--conversation-id",
+    conversationId,
+    "--conversation-json-path",
+    conversationJsonPath,
+    "--global-json-path",
+    globalJsonPath,
+    "--stream",
+  ]
   const modelOverride = process.env.DEDALUS_MODEL?.trim()
   if (modelOverride) {
     args.push("--model", modelOverride)
@@ -119,6 +167,7 @@ async function streamFromAskQuestionScript(
     let assistantText = ""
     let finishReason: StreamFinishReason = "stop"
     let reportedError: string | null = null
+    let sawTokenEvent = false
 
     const onAbort = () => {
       child.kill("SIGTERM")
@@ -139,7 +188,14 @@ async function streamFromAskQuestionScript(
       }
 
       if (event.type === "token" && typeof event.token === "string") {
-        onToken(event.token)
+        const hadTokenEvent = sawTokenEvent
+        sawTokenEvent = true
+
+        if (!hadTokenEvent && event.token.length > 64) {
+          void emitTextAsDeltas(event.token, onToken, { chunkSize: 18 })
+        } else {
+          onToken(event.token)
+        }
         assistantText += event.token
         return
       }
@@ -209,7 +265,7 @@ async function streamFromAskQuestionScript(
         return
       }
 
-      resolve({ assistantText, finishReason })
+      resolve({ assistantText, finishReason, sawTokenEvent })
     })
   })
 }
@@ -225,9 +281,44 @@ export async function POST(req: Request) {
     }
 
     const url = new URL(req.url)
-    const requestedConversationId = url.searchParams.get("conversationId") ?? undefined
-    const { messages }: { messages: UIMessage[] } = await req.json()
-    const conversationId = await persistPromptSnapshot(requestedConversationId, messages)
+    const requestBody = (await req.json()) as {
+      messages?: UIMessage[]
+      conversationId?: unknown
+    }
+    const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
+    const requestedConversationIdFromBody =
+      typeof requestBody.conversationId === "string"
+        ? requestBody.conversationId
+        : undefined
+    const requestedConversationId =
+      requestedConversationIdFromBody ?? url.searchParams.get("conversationId")
+
+    const sanitizedRequestedConversationId = sanitizeConversationId(requestedConversationId)
+    if (!sanitizedRequestedConversationId) {
+      return Response.json(
+        {
+          error:
+            "No active conversation selected. Create or select a conversation before sending a message.",
+        },
+        { status: 400 },
+      )
+    }
+
+    let conversationId: string
+    try {
+      conversationId = await persistPromptSnapshot(sanitizedRequestedConversationId, messages, {
+        allowCreate: false,
+      })
+    } catch (error) {
+      const fileError = error as NodeJS.ErrnoException
+      if (fileError.code === "ENOENT") {
+        return Response.json(
+          { error: `Conversation "${sanitizedRequestedConversationId}" was not found.` },
+          { status: 404 },
+        )
+      }
+      throw error
+    }
 
     const latestUserMessage = getLatestUserMessage(messages)
     if (!latestUserMessage) {
@@ -262,27 +353,48 @@ export async function POST(req: Request) {
         }
       },
       execute: async ({ writer }) => {
+        const responseMessageId = `assistant-${Date.now()}`
         const textPartId = `text-${Date.now()}`
         let finishReason: StreamFinishReason = "stop"
 
-        writer.write({ type: "start" })
+        writer.write({ type: "start", messageId: responseMessageId })
         writer.write({ type: "text-start", id: textPartId })
 
         const pythonResult = await streamFromAskQuestionScript(
           latestUserMessage,
+          conversationId,
           req.signal,
           (token) => {
             writer.write({ type: "text-delta", id: textPartId, delta: token })
           },
         )
         finishReason = pythonResult.finishReason
+        if (!pythonResult.sawTokenEvent) {
+          await emitTextAsDeltas(
+            pythonResult.assistantText,
+            (token) => {
+              writer.write({ type: "text-delta", id: textPartId, delta: token })
+            },
+            {
+              chunkSize: 18,
+              tokenDelayMs: 14,
+            },
+          )
+        }
 
         writer.write({ type: "text-end", id: textPartId })
         writer.write({ type: "finish", finishReason })
       },
     })
 
-    return createUIMessageStreamResponse({ stream })
+    return createUIMessageStreamResponse({
+      stream,
+      headers: {
+        "Content-Encoding": "none",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
+    })
   } catch (error) {
     console.error("Failed to process chat request.", error)
     return Response.json({ error: toClientError(error) }, { status: 500 })
