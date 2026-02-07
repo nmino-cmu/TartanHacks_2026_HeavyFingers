@@ -42,7 +42,9 @@ const ENABLE_RECOVERY_LOGS = process.env.CHAT_RECOVERY_LOGS?.trim() === "1"
 const DEFAULT_API_BASE_URL = "https://api.dedaluslabs.ai/v1"
 const OCR_MODEL = process.env.CHAT_OCR_MODEL?.trim() || "mistral-ocr-latest"
 const WEB_SEARCH_MCP_SERVER = "akakak/parallel-search-mcp"
+const DEEP_SEARCH_MCP_SERVER = "tsion/sonar"
 const WEB_SEARCH_MODEL = process.env.CHAT_WEB_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
+const DEEP_SEARCH_MODEL = process.env.CHAT_DEEP_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
 const MAX_OCR_ATTACHMENTS = 5
 const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const MAX_BASE64_CHARS_PER_ATTACHMENT = Math.ceil((MAX_OCR_ATTACHMENT_BYTES * 4) / 3) + 512
@@ -462,11 +464,28 @@ function extractTextFromOcrPayload(payload: unknown): string {
   return markdownChunks.join("\n\n")
 }
 
-async function buildWebSearchContext(
-  userQuery: string,
-  dedalusApiKey: string,
-  abortSignal: AbortSignal,
-): Promise<string> {
+interface BuildMcpSearchContextOptions {
+  userQuery: string
+  dedalusApiKey: string
+  abortSignal: AbortSignal
+  mcpServer: string
+  model: string
+  workerPrompt: string
+  failurePrefix: string
+  noResultsText: string
+}
+
+async function buildMcpSearchContext(options: BuildMcpSearchContextOptions): Promise<string> {
+  const {
+    userQuery,
+    dedalusApiKey,
+    abortSignal,
+    mcpServer,
+    model,
+    workerPrompt,
+    failurePrefix,
+    noResultsText,
+  } = options
   const apiBaseUrl = process.env.DEDALUS_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
   const userAgent =
     process.env.DEDALUS_USER_AGENT?.trim() ||
@@ -481,14 +500,13 @@ async function buildWebSearchContext(
       "User-Agent": userAgent,
     },
     body: JSON.stringify({
-      model: WEB_SEARCH_MODEL,
+      model,
       stream: false,
-      mcp_servers: [WEB_SEARCH_MCP_SERVER],
+      mcp_servers: [mcpServer],
       messages: [
         {
           role: "system",
-          content:
-            "You are a web research worker. Use available MCP tools to search and extract web content before answering. Return concise bullet points and include source URLs. If no useful results are found, return exactly NO_RESULTS.",
+          content: workerPrompt,
         },
         {
           role: "user",
@@ -501,20 +519,56 @@ async function buildWebSearchContext(
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`Web search context failed with status ${response.status}. ${body.slice(0, 400)}`)
+    throw new Error(`${failurePrefix} failed with status ${response.status}. ${body.slice(0, 400)}`)
   }
 
   const payload = (await response.json()) as unknown
   const text = extractTextFromChatCompletionPayload(payload)
   if (!text) {
-    throw new Error("Web search context failed: empty result.")
+    throw new Error(`${failurePrefix} failed: empty result.`)
   }
 
   if (text.trim() === "NO_RESULTS") {
-    return "Web search returned no useful results."
+    return noResultsText
   }
 
   return text.slice(0, MAX_WEB_CONTEXT_CHARS)
+}
+
+async function buildWebSearchContext(
+  userQuery: string,
+  dedalusApiKey: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  return buildMcpSearchContext({
+    userQuery,
+    dedalusApiKey,
+    abortSignal,
+    mcpServer: WEB_SEARCH_MCP_SERVER,
+    model: WEB_SEARCH_MODEL,
+    workerPrompt:
+      "You are a web research worker. Use available MCP tools to search and extract web content before answering. Return concise bullet points and include source URLs. If no useful results are found, return exactly NO_RESULTS.",
+    failurePrefix: "Web search context",
+    noResultsText: "Web search returned no useful results.",
+  })
+}
+
+async function buildDeepSearchContext(
+  userQuery: string,
+  dedalusApiKey: string,
+  abortSignal: AbortSignal,
+): Promise<string> {
+  return buildMcpSearchContext({
+    userQuery,
+    dedalusApiKey,
+    abortSignal,
+    mcpServer: DEEP_SEARCH_MCP_SERVER,
+    model: DEEP_SEARCH_MODEL,
+    workerPrompt:
+      "You are a deep research worker. Use available MCP tools to run broad and follow-up searches, extract key evidence, and return concise bullets with source URLs. If no useful results are found, return exactly NO_RESULTS.",
+    failurePrefix: "Deep search context",
+    noResultsText: "Deep search returned no useful results.",
+  })
 }
 
 function buildGeneratedImageMarkdown(imageUrl: string, prompt: string): string {
@@ -1000,12 +1054,14 @@ export async function POST(req: Request) {
       conversationId?: unknown
       model?: unknown
       webSearchEnabled?: unknown
+      deepSearchEnabled?: unknown
       imageGenerationEnabled?: unknown
       imageModel?: unknown
       attachments?: unknown
     }
     const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
     const webSearchEnabled = requestBody.webSearchEnabled === true
+    const deepSearchEnabled = requestBody.deepSearchEnabled === true
     const imageGenerationEnabled = requestBody.imageGenerationEnabled === true
     const requestedImageModel = sanitizeRequestedImageModel(requestBody.imageModel)
     const uploadedOcrAttachments = decodeOcrAttachments(requestBody.attachments)
@@ -1108,6 +1164,22 @@ export async function POST(req: Request) {
           reason: getErrorMessage(error),
         })
         promptForModel = `${promptForModel}\n\nWeb search was requested but failed on the server. Do not invent web findings. If needed, say web search is temporarily unavailable.`
+      }
+    }
+
+    if (deepSearchEnabled) {
+      try {
+        const deepSearchContext = await buildDeepSearchContext(latestUserMessage, dedalusApiKey, req.signal)
+        if (deepSearchContext.trim()) {
+          promptForModel = `${promptForModel}\n\n<deep_search_context>\n${deepSearchContext}\n</deep_search_context>`
+        }
+      } catch (error) {
+        console.error("Failed to build deep search context. Continuing without deep search context.", error)
+        logRecovery("Continuing without deep search context.", {
+          conversationId,
+          reason: getErrorMessage(error),
+        })
+        promptForModel = `${promptForModel}\n\nDeep search was requested but failed on the server. Do not invent deep-search findings. If needed, say deep search is temporarily unavailable.`
       }
     }
 

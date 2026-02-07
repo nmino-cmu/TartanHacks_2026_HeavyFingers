@@ -8,6 +8,8 @@ package-lock.json
 /node_modules
 /.next
 /dedalus_stuff/conversations
+.env.example
+.env 2.local
 
 repomix-output.xml
 repomix-output-*.xml

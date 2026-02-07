@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useTheme } from "next-themes"
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
@@ -261,6 +262,24 @@ function XIcon({ className }: { className?: string }) {
   )
 }
 
+function LeafIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  )
+}
+
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -279,6 +298,7 @@ export function ChatContainer() {
   const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
   const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+  const [themeMounted, setThemeMounted] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isHydratingConversation, setIsHydratingConversation] = useState(true)
@@ -287,12 +307,14 @@ export function ChatContainer() {
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+  const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
   const [attachmentsByMessageId, setAttachmentsByMessageId] = useState<Record<string, MessageAttachment[]>>({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
   const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
   const isMobile = useIsMobile()
+  const { theme, setTheme } = useTheme()
 
   const transport = useMemo(
     () =>
@@ -311,6 +333,7 @@ export function ChatContainer() {
     isMutatingConversation ||
     status === "streaming" ||
     status === "submitted"
+  const isDarkTheme = theme === "dark"
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
@@ -342,10 +365,8 @@ export function ChatContainer() {
   }, [messages, status])
 
   useEffect(() => {
-    if (!isMobile && !isSidebarOpen) {
-      setIsSidebarOpen(true)
-    }
-  }, [isMobile, isSidebarOpen])
+    setThemeMounted(true)
+  }, [])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -480,6 +501,7 @@ export function ChatContainer() {
           conversationId,
           model,
           webSearchEnabled,
+          deepSearchEnabled,
           imageGenerationEnabled,
           imageModel,
           attachments: requestAttachments,
@@ -499,6 +521,7 @@ export function ChatContainer() {
           conversationId,
           model,
           webSearchEnabled,
+          deepSearchEnabled,
           imageGenerationEnabled,
           imageModel,
         },
@@ -669,39 +692,30 @@ export function ChatContainer() {
 
     const hasOcrTool = pendingAttachments.length > 0
     const hasWebTool = webSearchEnabled
+    const hasDeepTool = deepSearchEnabled
     const hasImageTool = imageGenerationEnabled
 
-    if (hasOcrTool && hasWebTool) {
-      return "Running tools: OCR and web search..."
+    const runningSearchLabels = [
+      hasWebTool ? "web search" : null,
+      hasDeepTool ? "deep search" : null,
+    ].filter((label): label is string => Boolean(label))
+    if (hasOcrTool && runningSearchLabels.length > 0) {
+      return `Running tools: OCR and ${runningSearchLabels.join(" + ")}...`
     }
     if (hasOcrTool) {
       return "Running tool: OCR parsing..."
     }
-    if (hasWebTool) {
-      return "Running tool: web search..."
+    if (runningSearchLabels.length > 0) {
+      return `Running tool: ${runningSearchLabels.join(" + ")}...`
     }
     if (hasImageTool) {
       return "Running tool: image generation..."
     }
     return "Preparing response..."
-  }, [status, pendingAttachments.length, webSearchEnabled, imageGenerationEnabled])
+  }, [status, pendingAttachments.length, webSearchEnabled, deepSearchEnabled, imageGenerationEnabled])
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setDashboardOpen(true)}
-        className="fixed right-3 top-16 z-50 flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
-        aria-label="Open carbon footprint dashboard"
-      >
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <span aria-hidden>🌿</span>
-        </div>
-        <span className="whitespace-nowrap" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
-          Footprint: {formatFootprint(footprintKg)}
-        </span>
-      </button>
-
       {isMobile && isSidebarOpen ? (
         <button
           type="button"
@@ -838,18 +852,55 @@ export function ChatContainer() {
           isSidebarOpen ? "md:ml-72" : "md:ml-0",
         )}
       >
-        <div className="flex items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen((prev) => !prev)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
-            aria-label="Toggle conversation sidebar"
-          >
-            <MenuIcon className="h-4 w-4" />
-          </button>
-          <p className="truncate text-sm font-medium text-foreground">
-            {activeConversation?.title || conversationId || "conversation"}
-          </p>
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
+              aria-label="Toggle conversation sidebar"
+            >
+              <MenuIcon className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <LeafIcon className="h-4 w-4" />
+              </div>
+              <span className="hidden text-sm font-semibold tracking-tight text-foreground sm:inline">
+                Verdant
+              </span>
+            </div>
+            <p className="truncate text-sm font-medium text-foreground">
+              {activeConversation?.title || conversationId || "conversation"}
+            </p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {themeMounted ? (
+              <button
+                type="button"
+                onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
+                className="inline-flex h-8 items-center rounded-full border-2 border-emerald-700 bg-emerald-100/80 px-3 text-xs font-medium text-emerald-950 ring-1 ring-emerald-700/35 transition hover:-translate-y-0.5 hover:border-emerald-800 hover:bg-emerald-200 hover:shadow-[0_10px_24px_-10px_rgba(16,185,129,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/80 dark:border-emerald-300 dark:bg-emerald-500/30 dark:text-emerald-50 dark:ring-emerald-300/45 dark:hover:border-emerald-200 dark:hover:bg-emerald-500/45 dark:focus-visible:ring-emerald-300/95"
+                aria-label="Toggle theme"
+              >
+                {isDarkTheme ? "🌙 Dark" : "☀️ Light"}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setDashboardOpen(true)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm transition hover:border-primary/50 hover:bg-background"
+              aria-label="Open carbon footprint dashboard"
+            >
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <span aria-hidden>🌿</span>
+              </div>
+              <span className="hidden whitespace-nowrap sm:inline" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+                Footprint: {formatFootprint(footprintKg)}
+              </span>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -908,6 +959,8 @@ export function ChatContainer() {
           onImageModelChange={(value) => setImageModel(sanitizeImageModel(value))}
           webSearchEnabled={webSearchEnabled}
           onToggleWebSearch={() => setWebSearchEnabled((current) => !current)}
+          deepSearchEnabled={deepSearchEnabled}
+          onToggleDeepSearch={() => setDeepSearchEnabled((current) => !current)}
           attachments={pendingAttachments}
           onAddFiles={(files) => {
             if (!files || files.length === 0) {

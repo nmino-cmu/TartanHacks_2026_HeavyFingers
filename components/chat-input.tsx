@@ -1,18 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { Telescope } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { toast } from "@/hooks/use-toast"
 
@@ -265,6 +255,23 @@ function ChevronDownIcon({ className }: { className?: string }) {
   )
 }
 
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  )
+}
+
 function formatAttachmentSize(bytes: number, type?: string): string {
   if (type === "text/uri-list" || bytes <= 0) {
     return "URL"
@@ -303,6 +310,8 @@ interface ChatInputProps {
   onImageModelChange: (value: string) => void
   webSearchEnabled: boolean
   onToggleWebSearch: () => void
+  deepSearchEnabled: boolean
+  onToggleDeepSearch: () => void
   attachments: PendingAttachment[]
   onAddFiles: (files: FileList | null) => void
   onAddAttachmentUrl: (url: string) => void
@@ -322,6 +331,8 @@ export function ChatInput({
   onImageModelChange,
   webSearchEnabled,
   onToggleWebSearch,
+  deepSearchEnabled,
+  onToggleDeepSearch,
   attachments,
   onAddFiles,
   onAddAttachmentUrl,
@@ -329,6 +340,7 @@ export function ChatInput({
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const modelMenuRootRef = useRef<HTMLDivElement>(null)
   const latestInputRef = useRef(input)
   const recognitionRef = useRef<any>(null)
   const lastSpeechTranscriptRef = useRef("")
@@ -336,6 +348,8 @@ export function ChatInput({
   const [speechSupported, setSpeechSupported] = useState(false)
   const [urlInputOpen, setUrlInputOpen] = useState(false)
   const [urlDraft, setUrlDraft] = useState("")
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<ModelProvider>("anthropic")
 
   const chatModelsByProvider = useMemo(() => {
     return PROVIDERS.map((provider) => {
@@ -347,6 +361,14 @@ export function ChatInput({
   const activeModelLabel = imageGenerationEnabled
     ? getImageModelDisplayLabel(imageModel)
     : getChatModelDisplayLabel(model)
+  const activeProviderModels =
+    chatModelsByProvider.find((entry) => entry.provider === activeProvider)?.providerModels ?? []
+  const controlHoverClass =
+    "transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:!border-emerald-700 hover:!bg-emerald-200 hover:!text-emerald-950 hover:shadow-[0_12px_28px_-10px_rgba(16,185,129,0.95)] dark:hover:!border-emerald-300 dark:hover:!bg-emerald-400/35 dark:hover:!text-emerald-100"
+  const controlFocusClass =
+    "focus-visible:!border-emerald-700 focus-visible:!ring-2 focus-visible:!ring-emerald-500 focus-visible:!ring-offset-0 dark:focus-visible:!border-emerald-300 dark:focus-visible:!ring-emerald-300"
+  const controlActiveClass =
+    "!border-2 !border-emerald-700 !bg-emerald-400 !text-emerald-950 ring-2 ring-emerald-700/55 shadow-[0_12px_28px_-10px_rgba(16,185,129,0.95)] dark:!border-emerald-300 dark:!bg-emerald-500/85 dark:!text-emerald-50 dark:ring-emerald-300/80"
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -358,6 +380,42 @@ export function ChatInput({
   useEffect(() => {
     latestInputRef.current = input
   }, [input])
+
+  useEffect(() => {
+    if (!modelMenuOpen) {
+      return
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (modelMenuRootRef.current && target && !modelMenuRootRef.current.contains(target)) {
+        setModelMenuOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setModelMenuOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handleMouseDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [modelMenuOpen])
+
+  useEffect(() => {
+    if (!modelMenuOpen || imageGenerationEnabled) {
+      return
+    }
+
+    const selectedModel = CHAT_MODEL_OPTIONS.find((entry) => entry.value === model)
+    const nextProvider = selectedModel?.provider ?? "anthropic"
+    setActiveProvider((current) => (current === nextProvider ? current : nextProvider))
+  }, [modelMenuOpen, imageGenerationEnabled, model])
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -548,7 +606,11 @@ export function ChatInput({
                   disabled={isLoading}
                   size="sm"
                   variant="ghost"
-                  className="h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground hover:bg-muted/40 disabled:opacity-40"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                  )}
                   aria-label="Add files"
                   title="Add files"
                 >
@@ -560,7 +622,14 @@ export function ChatInput({
                   disabled={isLoading}
                   size="sm"
                   variant="ghost"
-                  className="h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground hover:bg-muted/40 disabled:opacity-40"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    urlInputOpen
+                      ? controlActiveClass
+                      : "",
+                  )}
                   aria-label="Add URL"
                   title="Add URL"
                 >
@@ -572,8 +641,10 @@ export function ChatInput({
                   size="sm"
                   variant="ghost"
                   className={cn(
-                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground hover:bg-muted/40",
-                    webSearchEnabled ? "border-primary/50 bg-primary/10 text-primary" : "",
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground",
+                    controlHoverClass,
+                    controlFocusClass,
+                    webSearchEnabled ? controlActiveClass : "",
                     isLoading ? "opacity-40" : "",
                   )}
                   aria-label={webSearchEnabled ? "Disable web search" : "Enable web search"}
@@ -583,13 +654,44 @@ export function ChatInput({
                 </Button>
 
                 <Button
+                  onClick={onToggleDeepSearch}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "group h-9 shrink-0 overflow-hidden rounded-full border px-2 text-xs font-medium transition-[width,background-color,border-color,color,transform,box-shadow] duration-200 ease-out",
+                    deepSearchEnabled
+                      ? `w-[148px] ${controlActiveClass}`
+                      : "w-9 border-border/60 bg-muted/20 text-foreground",
+                    controlHoverClass,
+                    controlFocusClass,
+                    isLoading ? "opacity-40" : "",
+                  )}
+                  aria-label={deepSearchEnabled ? "Disable deep search" : "Enable deep search"}
+                  title={deepSearchEnabled ? "Deep search on" : "Deep search off"}
+                >
+                  <span className="flex w-full items-center">
+                    <Telescope className="h-4 w-4 shrink-0" />
+                    <span
+                      className={cn(
+                        "ml-2 whitespace-nowrap text-[11px] lowercase transition-opacity duration-100",
+                        deepSearchEnabled ? "opacity-100" : "opacity-0",
+                      )}
+                    >
+                      deep research
+                    </span>
+                  </span>
+                </Button>
+
+                <Button
                   onClick={onToggleImageGeneration}
                   disabled={isLoading}
                   size="sm"
                   variant="ghost"
                   className={cn(
-                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground hover:bg-muted/40 disabled:opacity-40",
-                    imageGenerationEnabled ? "border-primary/60 bg-primary/10 text-primary" : "",
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    imageGenerationEnabled ? controlActiveClass : "",
                   )}
                   aria-label={imageGenerationEnabled ? "Switch to text models" : "Switch to image models"}
                   title={imageGenerationEnabled ? "Image mode" : "Text mode"}
@@ -597,82 +699,122 @@ export function ChatInput({
                   <ImageIcon className="h-4 w-4" />
                 </Button>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={isLoading}
-                      className="inline-flex h-9 max-w-[230px] items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 text-xs text-foreground shadow-none transition-colors hover:bg-muted/40 disabled:opacity-40"
-                      aria-label={imageGenerationEnabled ? "Choose image model" : "Choose text model"}
-                    >
-                      <span className="truncate">{activeModelLabel}</span>
-                      <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    side="top"
-                    align="start"
-                    className="w-[300px] rounded-xl border-border/70 bg-background/95"
-                  >
-                    {imageGenerationEnabled ? (
-                      <>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">Image Models</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {IMAGE_MODEL_OPTIONS.map((entry) => (
-                          <DropdownMenuItem
-                            key={entry.value}
-                            onSelect={() => onImageModelChange(entry.value)}
-                            className="text-sm"
-                          >
-                            <span>{entry.label}</span>
-                            {imageModel === entry.value ? <span className="ml-auto text-xs text-primary">Selected</span> : null}
-                          </DropdownMenuItem>
-                        ))}
-                      </>
-                    ) : (
-                      <>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">Text Models</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {chatModelsByProvider.map(({ provider, providerModels }) => (
-                          <DropdownMenuSub key={provider}>
-                            <DropdownMenuSubTrigger className="text-sm">
-                              {PROVIDER_LABEL[provider]}
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent className="w-[280px] rounded-xl border-border/70 bg-background/95">
-                              {TIERS.map((tier) => {
-                                const tierEntries = providerModels.filter((entry) => entry.tier === tier)
-                                if (tierEntries.length === 0) {
-                                  return null
-                                }
-
-                                return (
-                                  <div key={tier}>
-                                    <DropdownMenuLabel className="py-1 text-[11px] font-medium text-muted-foreground">
-                                      {TIER_LABEL[tier]}
-                                    </DropdownMenuLabel>
-                                    {tierEntries.map((entry) => (
-                                      <DropdownMenuItem
-                                        key={entry.value}
-                                        onSelect={() => onModelChange(entry.value)}
-                                        className="text-sm"
-                                      >
-                                        <span>{entry.name}</span>
-                                        {model === entry.value ? (
-                                          <span className="ml-auto text-xs text-primary">Selected</span>
-                                        ) : null}
-                                      </DropdownMenuItem>
-                                    ))}
-                                    <DropdownMenuSeparator />
-                                  </div>
-                                )
-                              })}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                        ))}
-                      </>
+                <div ref={modelMenuRootRef} className="relative">
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setModelMenuOpen((current) => !current)}
+                    className={cn(
+                      "inline-flex h-9 max-w-[230px] items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 text-xs text-foreground shadow-none disabled:opacity-40",
+                      controlHoverClass,
+                      controlFocusClass,
+                      modelMenuOpen ? controlActiveClass : "",
                     )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    aria-label={imageGenerationEnabled ? "Choose image model" : "Choose text model"}
+                    aria-expanded={modelMenuOpen}
+                    aria-haspopup="menu"
+                  >
+                    <span className="truncate">{activeModelLabel}</span>
+                    <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  </button>
+
+                  {modelMenuOpen ? (
+                    <div className="absolute left-0 top-auto z-40 min-w-[300px] rounded-xl border border-border/70 bg-background/95 p-2 shadow-xl backdrop-blur-md" style={{ bottom: "calc(100% + 8px)" }}>
+                      {imageGenerationEnabled ? (
+                        <div className="space-y-1">
+                          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Image Models
+                          </p>
+                          {IMAGE_MODEL_OPTIONS.map((entry) => (
+                            <button
+                              key={entry.value}
+                              type="button"
+                              onClick={() => {
+                                onImageModelChange(entry.value)
+                                setModelMenuOpen(false)
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60",
+                                imageModel === entry.value ? "bg-primary/10 text-primary" : "",
+                              )}
+                            >
+                              <span className="truncate">{entry.label}</span>
+                              {imageModel === entry.value ? (
+                                <span className="ml-auto text-[11px] font-medium">Selected</span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="relative flex min-h-[220px] min-w-[460px]">
+                          <div className="w-44 border-r border-border/60 pr-2">
+                            <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Providers
+                            </p>
+                            {chatModelsByProvider.map(({ provider }) => (
+                              <button
+                                key={provider}
+                                type="button"
+                                onMouseEnter={() => setActiveProvider(provider)}
+                                onFocus={() => setActiveProvider(provider)}
+                                className={cn(
+                                  "mt-1 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                                  activeProvider === provider
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-foreground hover:bg-muted/60",
+                                )}
+                              >
+                                <span>{PROVIDER_LABEL[provider]}</span>
+                                <ChevronRightIcon className="h-3.5 w-3.5 opacity-75" />
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="w-[300px] pl-3">
+                            <p className="px-1 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {PROVIDER_LABEL[activeProvider]} Models
+                            </p>
+                            {TIERS.map((tier) => {
+                              const tierEntries = activeProviderModels.filter((entry) => entry.tier === tier)
+                              if (tierEntries.length === 0) {
+                                return null
+                              }
+
+                              return (
+                                <div key={tier} className="mb-2 rounded-lg border border-border/40 bg-muted/20 p-1">
+                                  <p className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                                    {TIER_LABEL[tier]}
+                                  </p>
+                                  {tierEntries.map((entry) => (
+                                    <button
+                                      key={entry.value}
+                                      type="button"
+                                      onClick={() => {
+                                        onModelChange(entry.value)
+                                        setModelMenuOpen(false)
+                                      }}
+                                      className={cn(
+                                        "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                                        model === entry.value
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-foreground hover:bg-muted/60",
+                                      )}
+                                    >
+                                      <span>{entry.name}</span>
+                                      {model === entry.value ? (
+                                        <span className="ml-auto text-[11px] font-medium">Selected</span>
+                                      ) : null}
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -682,8 +824,10 @@ export function ChatInput({
                   size="sm"
                   variant="ghost"
                   className={cn(
-                    "h-9 w-9 shrink-0 rounded-xl border border-border/60 bg-muted/20 text-foreground hover:bg-muted/40 disabled:opacity-40",
-                    isListening ? "border-primary/50 text-primary" : "",
+                    "h-9 w-9 shrink-0 rounded-xl border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    isListening ? controlActiveClass : "",
                   )}
                   aria-label={isListening ? "Stop speech input" : "Start speech input"}
                   title={
