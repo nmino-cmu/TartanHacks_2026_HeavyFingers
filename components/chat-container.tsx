@@ -44,30 +44,6 @@ interface ConversationsResponse {
   conversations: ConversationSummary[]
 }
 
-function areConversationSummariesEqual(
-  current: ConversationSummary[],
-  next: ConversationSummary[],
-): boolean {
-  if (current.length !== next.length) {
-    return false
-  }
-
-  for (let index = 0; index < current.length; index += 1) {
-    const currentEntry = current[index]
-    const nextEntry = next[index]
-    if (
-      currentEntry.conversationId !== nextEntry.conversationId ||
-      currentEntry.title !== nextEntry.title ||
-      currentEntry.updatedAt !== nextEntry.updatedAt ||
-      currentEntry.messageCount !== nextEntry.messageCount
-    ) {
-      return false
-    }
-  }
-
-  return true
-}
-
 function sanitizeModel(value?: string | null): string {
   if (!value) {
     return DEFAULT_MODEL
@@ -219,7 +195,6 @@ export function ChatContainer() {
   const [editingConversationName, setEditingConversationName] = useState("")
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const refreshConversationsPromiseRef = useRef<Promise<void> | null>(null)
   const isMobile = useIsMobile()
 
   const transport = useMemo(
@@ -245,19 +220,15 @@ export function ChatContainer() {
     [conversations, conversationId],
   )
 
-  const charCount = useMemo(
-    () =>
-      messages.reduce((total, message) => {
-        const chars =
-          message.parts
-            ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-            .map((p) => p.text.length)
-            .reduce((a, b) => a + b, 0) ?? 0
+  const charCount = messages.reduce((total, message) => {
+    const chars =
+      message.parts
+        ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text.length)
+        .reduce((a, b) => a + b, 0) ?? 0
 
-        return total + chars
-      }, 0),
-    [messages],
-  )
+    return total + chars
+  }, 0)
   const tokenEstimate = charCount / CHARS_PER_TOKEN
   const footprintKg = tokenEstimate * KG_PER_TOKEN
 
@@ -273,34 +244,21 @@ export function ChatContainer() {
   }, [isMobile])
 
   const refreshConversations = useCallback(async () => {
-    if (refreshConversationsPromiseRef.current) {
-      return refreshConversationsPromiseRef.current
-    }
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "GET",
+        cache: "no-store",
+      })
 
-    const refreshPromise = (async () => {
-      try {
-        const response = await fetch("/api/conversations", {
-          method: "GET",
-          cache: "no-store",
-        })
-
-        if (!response.ok) {
-          throw new Error(`Conversation list failed with status ${response.status}`)
-        }
-
-        const data: ConversationsResponse = await response.json()
-        setConversations((current) =>
-          areConversationSummariesEqual(current, data.conversations) ? current : data.conversations,
-        )
-      } catch (error) {
-        console.error("Failed to load conversation list.", error)
-      } finally {
-        refreshConversationsPromiseRef.current = null
+      if (!response.ok) {
+        throw new Error(`Conversation list failed with status ${response.status}`)
       }
-    })()
 
-    refreshConversationsPromiseRef.current = refreshPromise
-    return refreshPromise
+      const data: ConversationsResponse = await response.json()
+      setConversations(data.conversations)
+    } catch (error) {
+      console.error("Failed to load conversation list.", error)
+    }
   }, [])
 
   const loadConversation = useCallback(
@@ -334,11 +292,13 @@ export function ChatContainer() {
     const hydrateConversation = async () => {
       try {
         const savedConversationId = window.localStorage.getItem(CONVERSATION_STORAGE_KEY)
-        const refreshPromise = refreshConversations()
-        await loadConversation(savedConversationId)
+        const data = await loadConversation(savedConversationId)
         if (!isMounted) return
 
-        void refreshPromise
+        await refreshConversations()
+        if (!isMounted) return
+
+        setConversationId(data.conversationId)
       } catch (error) {
         console.error("Failed to hydrate conversation from master copy.", error)
       } finally {
@@ -356,10 +316,10 @@ export function ChatContainer() {
   }, [loadConversation, refreshConversations])
 
   useEffect(() => {
-    if (status === "ready" && !isHydratingConversation) {
+    if (status === "ready") {
       void refreshConversations()
     }
-  }, [status, isHydratingConversation, refreshConversations])
+  }, [status, refreshConversations])
 
   const handleSubmit = () => {
     if (!input.trim() || isLoading || !conversationId) return

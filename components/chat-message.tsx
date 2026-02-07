@@ -1,10 +1,9 @@
 "use client"
 
 import type { UIMessage } from "ai"
-import { lazy, memo, Suspense, useMemo } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
-
-const MarkdownRenderer = lazy(() => import("@/components/markdown-renderer"))
 
 function BotIcon({ className }: { className?: string }) {
   return (
@@ -47,26 +46,18 @@ interface ChatMessageProps {
   isStreaming?: boolean
 }
 
-function extractTextFromUIMessage(message: UIMessage): string {
-  const textFromParts =
-    message.parts
-      ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("") || ""
-
-  if (textFromParts) {
-    return textFromParts
-  }
-
-  const messageWithContent = message as UIMessage & { content?: unknown }
-  return typeof messageWithContent.content === "string" ? messageWithContent.content : ""
-}
-
-function ChatMessageComponent({ message, isStreaming }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === "user"
   const isStreamingAssistant = Boolean(isStreaming && !isUser)
 
-  const text = useMemo(() => extractTextFromUIMessage(message), [message])
+  const textFromParts = message.parts
+    ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("") || ""
+  const messageWithContent = message as UIMessage & { content?: unknown }
+  const text =
+    textFromParts ||
+    (typeof messageWithContent.content === "string" ? messageWithContent.content : "")
 
   return (
     <div
@@ -92,9 +83,9 @@ function ChatMessageComponent({ message, isStreaming }: ChatMessageProps) {
           {isStreamingAssistant ? (
             <div className="whitespace-pre-wrap">{text || ""}</div>
           ) : (
-            <Suspense fallback={<div className="whitespace-pre-wrap">{text || ""}</div>}>
-              <MarkdownRenderer text={text || ""} />
-            </Suspense>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {text || ""}
+            </ReactMarkdown>
           )}
         </div>
         {isStreamingAssistant && (
@@ -109,17 +100,3 @@ function ChatMessageComponent({ message, isStreaming }: ChatMessageProps) {
     </div>
   )
 }
-
-function areEqualChatMessageProps(prev: ChatMessageProps, next: ChatMessageProps): boolean {
-  if (prev.isStreaming !== next.isStreaming) {
-    return false
-  }
-
-  if (prev.message.id !== next.message.id || prev.message.role !== next.message.role) {
-    return false
-  }
-
-  return extractTextFromUIMessage(prev.message) === extractTextFromUIMessage(next.message)
-}
-
-export const ChatMessage = memo(ChatMessageComponent, areEqualChatMessageProps)

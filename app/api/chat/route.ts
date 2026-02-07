@@ -39,14 +39,14 @@ const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
     40,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "2", 10) || 0,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "0", 10) || 0,
   ),
 )
-const STREAM_DELTA_CHARS = Math.max(
+const STREAM_TOKENS_PER_FLUSH = Math.max(
   1,
   Math.min(
     8,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_CHARS?.trim() || "1", 10) || 1,
+    Number.parseInt(process.env.CHAT_STREAM_TOKENS_PER_FLUSH?.trim() || "2", 10) || 2,
   ),
 )
 
@@ -513,19 +513,26 @@ export async function POST(req: Request) {
 
         const drainTokens = async () => {
           while (!streamClosed || pendingTokens.length > 0) {
-            if (pendingTokens.length === 0) {
+            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
               await new Promise<void>((resolve) => {
                 wakeDrain = resolve
               })
               continue
             }
 
-            const nextToken = pendingTokens.shift() || ""
-            if (!nextToken) {
+            if (pendingTokens.length === 0) {
               continue
             }
 
-            writer.write({ type: "text-delta", id: textPartId, delta: nextToken })
+            const chunkSize = streamClosed
+              ? Math.min(STREAM_TOKENS_PER_FLUSH, pendingTokens.length)
+              : STREAM_TOKENS_PER_FLUSH
+            const delta = pendingTokens.splice(0, chunkSize).join("")
+            if (!delta) {
+              continue
+            }
+
+            writer.write({ type: "text-delta", id: textPartId, delta })
             if (STREAM_DELTA_DELAY_MS > 0 && pendingTokens.length > 0) {
               await waitFor(STREAM_DELTA_DELAY_MS, req.signal)
             }
