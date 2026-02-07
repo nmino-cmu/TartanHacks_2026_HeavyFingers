@@ -1,6 +1,8 @@
 "use client"
 
 import type { UIMessage } from "ai"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 
 function BotIcon({ className }: { className?: string }) {
@@ -72,12 +74,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             : "bg-card text-card-foreground border border-border/60 shadow-sm"
         )}
       >
-        <div className="whitespace-pre-wrap break-words">
-          {text}
-          {isStreaming && !isUser && (
-            <span className="typing-cursor" />
-          )}
+        <div className="space-y-2 break-words [&_*]:max-w-full [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {text || ""}
+          </ReactMarkdown>
         </div>
+        {isStreaming && !isUser && (
+          <span className="typing-cursor" />
+        )}
       </div>
       {isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seafoam/40">

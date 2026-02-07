@@ -1,6 +1,8 @@
 "use client"
 
+import React from "react"
 import { signIn, signOut, useSession } from "next-auth/react"
+import { useTheme } from "next-themes"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import {
@@ -130,8 +132,14 @@ function HistoryIcon({ className }: { className?: string }) {
 export function Header() {
   const { data: session, status } = useSession()
   const isLoggedIn = status === "authenticated"
-  const userName = session?.user?.name || session?.user?.email || "Google User"
+  const userName = session?.user?.name || session?.user?.email || "User"
   const userInitial = userName.charAt(0).toUpperCase()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => setMounted(true), [])
+
+  const isDark = theme === "dark"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-md">
@@ -149,6 +157,17 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          {mounted && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex gap-2"
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+              aria-label="Toggle theme"
+            >
+              {isDark ? "🌙 Dark" : "☀️ Light"}
+            </Button>
+          )}
           <Link href="/wallet" className="hidden sm:inline">
             <Button
               variant="outline"
@@ -175,7 +194,7 @@ export function Header() {
                   <div className="flex flex-col gap-1">
                     <p className="text-sm font-medium leading-none">{userName}</p>
                     <p className="text-xs leading-none text-muted-foreground">
-                      Signed in with Google
+                      Signed in
                     </p>
                   </div>
                 </DropdownMenuLabel>

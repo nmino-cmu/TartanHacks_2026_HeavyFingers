@@ -141,7 +141,7 @@ export default function WalletPage() {
         <div className="flex items-center justify-between">
           <a
             href="/"
-            className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-white/80 px-3 py-1.5 text-sm font-medium text-primary shadow-sm hover:border-primary/40 hover:shadow-md transition"
+            className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-card/90 px-3 py-1.5 text-sm font-medium text-primary shadow-sm backdrop-blur transition hover:border-primary/50 hover:shadow-md"
           >
             ← Back to Chat
           </a>

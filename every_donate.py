@@ -2,7 +2,7 @@ import requests
 import json 
 
 charities = {"earthday.org": "133798288", 
-             "Pacific Environmental Coalition":"843138671",
+             "GivePact":"920504087",
              "Environmental Defense Fund":"116107128"}
 
 def get_donate_address(nonprofit_ein, name, email):
@@ -34,3 +34,4 @@ def get_donate_address(nonprofit_ein, name, email):
 
     return deposit_addr 
 
+print(get_donate_address("earthday.org", "B", "E@e.org"))
