@@ -1,6 +1,8 @@
 # Define the network client
+import xrpl
 from xrpl.clients import JsonRpcClient
 from xrpl.wallet import generate_faucet_wallet
+from xrpl.wallet import Wallet
 from xrpl.core import addresscodec
 from xrpl.models.requests.account_info import AccountInfo
 import json
@@ -8,8 +10,8 @@ import json
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(JSON_RPC_URL)
 
-JSON_WALLET1 = "wallet1.json"
-JSON_WALLET2 = "wallet2.json" 
+JSON_WALLET = "wallet1.json"
+EVERY_DONATE_ADDRESS = "rLjd5uRaxpi84pcn9ikbiMWPGqYfLrh15w" 
 
 def createWallet(json_file):
     # Create a wallet using the Testnet faucet:
@@ -50,24 +52,24 @@ def getAddress(json_file):
     accountData = data["account_data"]
     return accountData["Account"]
             
-def sendCheck(seed, amount, destination, issuer):
+def sendCheck(seed, amount, destination):
     wallet=Wallet.from_seed(seed)
-#    client=JsonRpcClient(testnet_url)
-#    check_tx=xrpl.models.transactions.CheckCreate(
-#        account=wallet.address,
-#        send_max=amount,
-#        destination=destination
-#    ) 
-#	reply=""
-#    try:
-#        response=xrpl.transaction.submit_and_wait(check_tx,client,wallet)
-        #reply=response.result
-    #except xrpl.transaction.XRPLReliableSubmissionException as e:
-   #     reply=f"Submit failed: {e}"
-  #  return reply
+    client=JsonRpcClient(JSON_RPC_URL)
+    check_tx=xrpl.models.transactions.CheckCreate(
+        account=wallet.address,
+        send_max=amount,
+        destination=destination
+    )
+    reply=""
+    try:
+        response=xrpl.transaction.submit_and_wait(check_tx,client,wallet)
+        reply=response.result
+    except xrpl.transaction.XRPLReliableSubmissionException as e:
+        reply=f"Submit failed: {e}"
+    return reply
 
-#createWallet(JSON_WALLET1)
-#createWallet(JSON_WALLET2)
-#getSeed(JSON_WALLET2)
-print(getAddress(JSON_WALLET1))
-#sendCheck
+createWallet(JSON_WALLET1)
+createWallet(JSON_WALLET2)
+seed = getSeed(JSON_WALLET2)
+address = getAddress(JSON_WALLET1)
+print(sendCheck(seed, "10", address)) 
