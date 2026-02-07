@@ -1,16 +1,19 @@
 "use client"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
-import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
 import { ChatMessage } from "@/components/chat-message"
 import { ChatInput, type PendingAttachment } from "@/components/chat-input"
 import { WelcomeScreen } from "@/components/welcome-screen"
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { toast } from "@/hooks/use-toast"
 =======
 >>>>>>> add_library
+=======
+import { toast } from "@/hooks/use-toast"
+>>>>>>> mcericola
 import {
   Dialog,
   DialogContent,
@@ -18,10 +21,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
+<<<<<<< HEAD
 <<<<<<< HEAD
 import { useTheme } from "next-themes"
 
@@ -52,17 +54,29 @@ const SUPPORTED_OCR_MIME_TYPES = new Set([
   "image/webp",
 ])
 =======
+=======
+import { useTheme } from "next-themes"
+>>>>>>> mcericola
 
 const CONVERSATION_STORAGE_KEY = "daedalus-conversation-id"
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const ALLOWED_MODELS = new Set<string>([
+const DEFAULT_IMAGE_MODEL = "openai/gpt-image-1"
+const CHAT_MODELS = new Set<string>([
   "anthropic/claude-opus-4-5",
-  "openai/gpt-4o-mini",
-  "google/gemini-1.5-pro",
+  "anthropic/claude-sonnet-4-5",
+  "anthropic/claude-haiku-4-5",
+  "openai/gpt-5",
+  "openai/gpt-5-mini",
+  "openai/gpt-5-nano",
+  "google/gemini-2.5-pro",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
 ])
+const IMAGE_MODELS = new Set<string>(["openai/gpt-image-1", "openai/dall-e-3"])
 
 const CHARS_PER_TOKEN = 4
 const KG_PER_TOKEN = 0.0000005
+<<<<<<< HEAD
 >>>>>>> add_library
 
 function extractMessageText(message: UIMessage): string {
@@ -101,6 +115,16 @@ function extractMessageText(message: UIMessage): string {
 
   return ""
 }
+=======
+const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
+const MAX_OCR_ATTACHMENT_LABEL = "50 MB"
+const SUPPORTED_OCR_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+])
+>>>>>>> mcericola
 
 interface ConversationResponse {
   conversationId: string
@@ -120,6 +144,9 @@ interface ConversationsResponse {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
 interface MessageAttachment {
   id: string
   name: string
@@ -184,8 +211,11 @@ function getAttachmentNameFromUrl(url: string): string {
   return "linked-document"
 }
 
+<<<<<<< HEAD
 =======
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 function sanitizeModel(value?: string | null): string {
   if (!value) {
     return DEFAULT_MODEL
@@ -193,6 +223,9 @@ function sanitizeModel(value?: string | null): string {
 
   const trimmed = value.trim()
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
   return CHAT_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
 }
 
@@ -203,9 +236,12 @@ function sanitizeImageModel(value?: string | null): string {
 
   const trimmed = value.trim()
   return IMAGE_MODELS.has(trimmed) ? trimmed : DEFAULT_IMAGE_MODEL
+<<<<<<< HEAD
 =======
   return ALLOWED_MODELS.has(trimmed) ? trimmed : DEFAULT_MODEL
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 }
 
 function formatFootprint(kg: number): string {
@@ -327,6 +363,9 @@ function XIcon({ className }: { className?: string }) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
 function LeafIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -345,8 +384,11 @@ function LeafIcon({ className }: { className?: string }) {
   )
 }
 
+<<<<<<< HEAD
 =======
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -363,13 +405,19 @@ export function ChatContainer() {
   const [input, setInput] = useState("")
   const [model, setModel] = useState(DEFAULT_MODEL)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
   const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false)
   const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [themeMounted, setThemeMounted] = useState(false)
+<<<<<<< HEAD
 =======
   const [dashboardOpen, setDashboardOpen] = useState(false)
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isHydratingConversation, setIsHydratingConversation] = useState(true)
@@ -379,10 +427,14 @@ export function ChatContainer() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
   const [webSearchEnabled, setWebSearchEnabled] = useState(false)
   const [deepSearchEnabled, setDeepSearchEnabled] = useState(false)
   const [pendingAttachments, setPendingAttachments] = useState<PendingOcrAttachment[]>([])
   const [attachmentsByMessageId, setAttachmentsByMessageId] = useState<Record<string, MessageAttachment[]>>({})
+<<<<<<< HEAD
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
   const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
@@ -397,10 +449,17 @@ export function ChatContainer() {
   const [searchHighlightTerms, setSearchHighlightTerms] = useState<string[]>([])
   const [searchCursor, setSearchCursor] = useState<{ conversationId: string | null; messageId: string | null } | null>(null)
 >>>>>>> mcericola
+=======
+>>>>>>> mcericola
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const conversationCache = useRef(new Map<string, ConversationResponse>())
+  const queuedAttachmentsRef = useRef<MessageAttachment[][]>([])
+  const seenUserMessageIdsRef = useRef<Set<string>>(new Set())
   const isMobile = useIsMobile()
+<<<<<<< HEAD
 >>>>>>> add_library
+=======
+  const { theme, setTheme } = useTheme()
+>>>>>>> mcericola
 
   const transport = useMemo(
     () =>
@@ -420,9 +479,13 @@ export function ChatContainer() {
     status === "streaming" ||
     status === "submitted"
 <<<<<<< HEAD
+<<<<<<< HEAD
   const isDarkTheme = theme === "dark"
 =======
 >>>>>>> add_library
+=======
+  const isDarkTheme = theme === "dark"
+>>>>>>> mcericola
 
   const activeConversation = useMemo(
     () => conversations.find((conversation) => conversation.conversationId === conversationId),
@@ -451,118 +514,20 @@ export function ChatContainer() {
 =======
 >>>>>>> add_library
 
-  const scrollToMessage = useCallback((targetMessageId: string): boolean => {
-    if (typeof window === "undefined") return false
-
-    const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-    if (!el) return false
-
-    el.scrollIntoView({ behavior: "smooth", block: "center" })
-    el.classList.add("ring-2", "ring-primary")
-    window.setTimeout(() => el.classList.remove("ring-2", "ring-primary"), 1200)
-    return true
+  const resetAttachmentUiState = useCallback(() => {
+    setPendingAttachments([])
+    setAttachmentsByMessageId({})
+    queuedAttachmentsRef.current = []
+    seenUserMessageIdsRef.current = new Set()
   }, [])
 
-  const findNextMessageIdByQuery = useCallback(
-    (messageList: UIMessage[], query: string, afterMessageId?: string | null): string | null => {
-      const trimmed = query.trim().toLowerCase()
-      if (!trimmed) return null
-
-      let startIndex = 0
-      if (afterMessageId) {
-        const idx = messageList.findIndex((m) => m.id === afterMessageId)
-        if (idx !== -1) {
-          startIndex = idx + 1
-        }
-      }
-
-      for (let i = startIndex; i < messageList.length; i += 1) {
-        const text = extractMessageText(messageList[i]).toLowerCase()
-        if (text.includes(trimmed)) {
-          return messageList[i].id
-        }
-      }
-      return null
-    },
-    [],
-  )
-
-  const getConversationData = useCallback(
-    async (targetConversationId: string): Promise<ConversationResponse> => {
-      if (targetConversationId === conversationId && conversationId) {
-        return {
-          conversationId,
-          messages,
-          model,
-        }
-      }
-
-      const cached = conversationCache.current.get(targetConversationId)
-      if (cached) {
-        return cached
-      }
-
-      const response = await fetch(
-        `/api/conversation?conversationId=${encodeURIComponent(targetConversationId)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
-      )
-
-      if (!response.ok) {
-        throw new Error(`Conversation fetch failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      conversationCache.current.set(targetConversationId, data)
-      return data
-    },
-    [conversationId, messages, model],
-  )
-
-  const findNextOccurrence = useCallback(
-    async (query: string, startAfter?: { conversationId: string | null; messageId: string | null } | null) => {
-      const trimmed = query.trim()
-      if (!trimmed) return null
-
-      const orderedConversationIds: string[] = []
-      if (conversationId) {
-        orderedConversationIds.push(conversationId)
-      }
-      for (const c of conversations) {
-        if (c.conversationId !== conversationId) {
-          orderedConversationIds.push(c.conversationId)
-        }
-      }
-
-      const hasStart = Boolean(startAfter?.conversationId)
-      let started = !hasStart
-
-      for (const cid of orderedConversationIds) {
-        const data = await getConversationData(cid)
-        const afterId = !started && startAfter?.conversationId === cid ? startAfter?.messageId : null
-        const matchId = findNextMessageIdByQuery(data.messages, trimmed, afterId || undefined)
-        if (matchId) {
-          return { conversation: data, messageId: matchId }
-        }
-        if (!started && startAfter?.conversationId === cid) {
-          started = true
-        }
-      }
-
-      return null
-    },
-    [conversationId, conversations, findNextMessageIdByQuery, getConversationData],
-  )
-
   useEffect(() => {
-    if (scrollTargetMessageId) return
     const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
     messagesEndRef.current?.scrollIntoView({ behavior })
-  }, [messages, status, scrollTargetMessageId])
+  }, [messages, status])
 
   useEffect(() => {
+<<<<<<< HEAD
     if (!scrollTargetMessageId) return
 
     const timer = window.setTimeout(() => {
@@ -591,6 +556,10 @@ export function ChatContainer() {
     setSearchStatus(null)
     setSearchHighlightTerms([])
   }, [searchQuery])
+=======
+    setThemeMounted(true)
+  }, [])
+>>>>>>> mcericola
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -610,27 +579,6 @@ export function ChatContainer() {
     }
   }, [])
 
-  useEffect(() => {
-    if (conversationId) {
-      conversationCache.current.set(conversationId, {
-        conversationId,
-        messages,
-        model,
-      })
-    }
-  }, [conversationId, messages, model])
-
-  const applyConversationData = useCallback(
-    (data: ConversationResponse) => {
-      setConversationId(data.conversationId)
-      setModel(sanitizeModel(data.model))
-      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-      setMessages(data.messages)
-      conversationCache.current.set(data.conversationId, data)
-    },
-    [setMessages],
-  )
-
   const loadConversation = useCallback(
     async (targetConversationId?: string | null): Promise<ConversationResponse> => {
       const query = targetConversationId
@@ -648,10 +596,14 @@ export function ChatContainer() {
 
       const data: ConversationResponse = await response.json()
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
       setConversationId(data.conversationId)
       setModel(sanitizeModel(data.model))
       window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
       setMessages(data.messages)
+<<<<<<< HEAD
 <<<<<<< HEAD
       resetAttachmentUiState()
       return data
@@ -692,11 +644,44 @@ export function ChatContainer() {
 =======
       applyConversationData(data)
 >>>>>>> mcericola
+=======
+      resetAttachmentUiState()
+>>>>>>> mcericola
       return data
     },
-    [applyConversationData],
+    [setMessages, resetAttachmentUiState],
   )
 >>>>>>> add_library
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return
+    }
+
+    let needsUpdate = false
+    const nextAssignments: Record<string, MessageAttachment[]> = {}
+
+    for (const message of messages) {
+      if (message.role !== "user") {
+        continue
+      }
+
+      if (seenUserMessageIdsRef.current.has(message.id)) {
+        continue
+      }
+
+      seenUserMessageIdsRef.current.add(message.id)
+      const queued = queuedAttachmentsRef.current.shift() ?? []
+      if (queued.length > 0) {
+        nextAssignments[message.id] = queued
+        needsUpdate = true
+      }
+    }
+
+    if (needsUpdate) {
+      setAttachmentsByMessageId((previous) => ({ ...previous, ...nextAssignments }))
+    }
+  }, [messages])
 
   useEffect(() => {
     let isMounted = true
@@ -736,6 +721,9 @@ export function ChatContainer() {
   const handleSubmit = () => {
     if (!input.trim() || isLoading || !conversationId) return
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
     const attachmentSnapshot: MessageAttachment[] = pendingAttachments.map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
@@ -751,6 +739,7 @@ export function ChatContainer() {
       documentUrl: attachment.documentUrl,
     }))
     queuedAttachmentsRef.current.push(attachmentSnapshot)
+<<<<<<< HEAD
     sendMessage(
       { text: input },
       {
@@ -769,6 +758,20 @@ export function ChatContainer() {
       {
         body: { conversationId, model },
 >>>>>>> add_library
+=======
+    sendMessage(
+      { text: input },
+      {
+        body: {
+          conversationId,
+          model,
+          webSearchEnabled,
+          deepSearchEnabled,
+          imageGenerationEnabled,
+          imageModel,
+          attachments: requestAttachments,
+        },
+>>>>>>> mcericola
       },
     )
     setInput("")
@@ -781,6 +784,9 @@ export function ChatContainer() {
       { text: prompt },
       {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
         body: {
           conversationId,
           model,
@@ -789,237 +795,15 @@ export function ChatContainer() {
           imageGenerationEnabled,
           imageModel,
         },
+<<<<<<< HEAD
       },
     )
 =======
         body: { conversationId, model },
+=======
+>>>>>>> mcericola
       },
     )
-  }
-
-  const handleSearchNext = useCallback(async () => {
-    const query = searchQuery.trim()
-    if (!query || isSearching || isLoading) return
-
-    setIsSearching(true)
-    setSearchStatus("Searching...")
-    setSearchHighlightTerms([query])
-
-    try {
-      const next = await findNextOccurrence(query, searchCursor)
-      if (next) {
-        const isNewConversation = next.conversation.conversationId !== conversationId
-        if (isNewConversation) {
-          applyConversationData(next.conversation)
-          if (isMobile) {
-            setIsSidebarOpen(false)
-          }
-        }
-        setScrollTargetMessageId(next.messageId)
-        setSearchCursor({ conversationId: next.conversation.conversationId, messageId: next.messageId })
-        const label =
-          conversations.find((c) => c.conversationId === next.conversation.conversationId)?.title ||
-          next.conversation.conversationId
-        setSearchStatus(`Found in ${label}.`)
-        return
-      }
-
-      if (searchCursor) {
-        const wrapped = await findNextOccurrence(query, null)
-        if (wrapped) {
-          const isNewConversation = wrapped.conversation.conversationId !== conversationId
-          if (isNewConversation) {
-            applyConversationData(wrapped.conversation)
-            if (isMobile) {
-              setIsSidebarOpen(false)
-            }
-          }
-          setScrollTargetMessageId(wrapped.messageId)
-          setSearchCursor({
-            conversationId: wrapped.conversation.conversationId,
-            messageId: wrapped.messageId,
-          })
-          const label =
-            conversations.find((c) => c.conversationId === wrapped.conversation.conversationId)?.title ||
-            wrapped.conversation.conversationId
-          setSearchStatus(`Wrapped to first match in ${label}.`)
-          return
-        }
-      }
-
-      setSearchStatus("No matches found.")
-    } catch (error) {
-      console.error("Search failed.", error)
-      setSearchStatus("Search failed. Please try again.")
-    } finally {
-      setIsSearching(false)
-    }
-  }, [
-    applyConversationData,
-    conversations,
-    conversationId,
-    findNextOccurrence,
-    isLoading,
-    isMobile,
-    isSearching,
-    searchQuery,
-    searchCursor,
-    setIsSidebarOpen,
-  ])
-
-  const handleSelectConversation = async (targetConversationId: string) => {
-    if (!targetConversationId || targetConversationId === conversationId || isLoading) {
-      return
-    }
-
-    setEditingConversationId(null)
-    setEditingConversationName("")
-    setIsHydratingConversation(true)
-    try {
-      await loadConversation(targetConversationId)
-      if (isMobile) {
-        setIsSidebarOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to switch conversations.", error)
-    } finally {
-      setIsHydratingConversation(false)
-    }
-  }
-
-  const handleCreateConversation = async () => {
-    if (isLoading) return
-
-    setEditingConversationId(null)
-    setEditingConversationName("")
-    setIsHydratingConversation(true)
-    try {
-      const response = await fetch("/api/conversations", {
-        method: "POST",
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        throw new Error(`Conversation create failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      setConversationId(data.conversationId)
-      setModel(sanitizeModel(data.model))
-      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-      setMessages(data.messages)
-      setInput("")
-      await refreshConversations()
-
-      if (isMobile) {
-        setIsSidebarOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to create a new conversation.", error)
-    } finally {
-      setIsHydratingConversation(false)
-    }
-  }
-
-  const handleStartRenameConversation = (conversation: ConversationSummary) => {
-    if (isLoading) return
-    setEditingConversationId(conversation.conversationId)
-    setEditingConversationName(conversation.title || "")
-  }
-
-  const handleCancelRenameConversation = () => {
-    setEditingConversationId(null)
-    setEditingConversationName("")
-  }
-
-  const handleSaveRenameConversation = async () => {
-    if (isLoading || !editingConversationId) return
-
-    const nextName = editingConversationName.trim()
-    if (!nextName) return
-
-    setIsMutatingConversation(true)
-    try {
-      const response = await fetch("/api/conversations", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          conversationId: editingConversationId,
-          name: nextName,
-        }),
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error || `Conversation rename failed with status ${response.status}`)
-      }
-
-      await refreshConversations()
-      handleCancelRenameConversation()
-    } catch (error) {
-      console.error("Failed to rename conversation.", error)
-      const message = error instanceof Error ? error.message : "Failed to rename conversation."
-      window.alert(message)
-    } finally {
-      setIsMutatingConversation(false)
-    }
-  }
-
-  const handleDeleteConversation = async (targetConversationId: string) => {
-    if (isLoading) return
-
-    const targetConversation = conversations.find(
-      (conversation) => conversation.conversationId === targetConversationId,
-    )
-    const targetLabel = targetConversation?.title || targetConversationId
-
-    if (!window.confirm(`Delete "${targetLabel}"? This cannot be undone.`)) {
-      return
-    }
-
-    setIsMutatingConversation(true)
-    try {
-      const query = new URLSearchParams({
-        conversationId: targetConversationId,
-      })
-      if (conversationId) {
-        query.set("activeConversationId", conversationId)
-      }
-
-      const response = await fetch(`/api/conversations?${query.toString()}`, {
-        method: "DELETE",
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error || `Conversation delete failed with status ${response.status}`)
-      }
-
-      const data: ConversationResponse = await response.json()
-      const deletedActiveConversation = targetConversationId === conversationId
-
-      if (deletedActiveConversation) {
-        setConversationId(data.conversationId)
-        setModel(sanitizeModel(data.model))
-        window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
-        setMessages(data.messages)
-      }
-
-      if (editingConversationId === targetConversationId) {
-        handleCancelRenameConversation()
-      }
-
-      await refreshConversations()
-    } catch (error) {
-      console.error("Failed to delete conversation.", error)
-      const message = error instanceof Error ? error.message : "Failed to delete conversation."
-      window.alert(message)
-    } finally {
-      setIsMutatingConversation(false)
-    }
->>>>>>> add_library
   }
 
   const handleSelectConversation = async (targetConversationId: string) => {
@@ -1176,8 +960,168 @@ export function ChatContainer() {
     } finally {
       setIsMutatingConversation(false)
     }
+>>>>>>> add_library
   }
 
+<<<<<<< HEAD
+  const handleSelectConversation = async (targetConversationId: string) => {
+    if (!targetConversationId || targetConversationId === conversationId || isLoading) {
+      return
+    }
+
+    setEditingConversationId(null)
+    setEditingConversationName("")
+    setIsHydratingConversation(true)
+    try {
+      await loadConversation(targetConversationId)
+      if (isMobile) {
+        setIsSidebarOpen(false)
+      }
+    } catch (error) {
+      console.error("Failed to switch conversations.", error)
+    } finally {
+      setIsHydratingConversation(false)
+    }
+  }
+
+  const handleCreateConversation = async () => {
+    if (isLoading) return
+
+    setEditingConversationId(null)
+    setEditingConversationName("")
+    setIsHydratingConversation(true)
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        throw new Error(`Conversation create failed with status ${response.status}`)
+      }
+
+      const data: ConversationResponse = await response.json()
+      setConversationId(data.conversationId)
+      setModel(sanitizeModel(data.model))
+      window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
+      setMessages(data.messages)
+      setInput("")
+      resetAttachmentUiState()
+      await refreshConversations()
+
+      if (isMobile) {
+        setIsSidebarOpen(false)
+      }
+    } catch (error) {
+      console.error("Failed to create a new conversation.", error)
+    } finally {
+      setIsHydratingConversation(false)
+    }
+  }
+
+  const handleStartRenameConversation = (conversation: ConversationSummary) => {
+    if (isLoading) return
+    setEditingConversationId(conversation.conversationId)
+    setEditingConversationName(conversation.title || "")
+  }
+
+  const handleCancelRenameConversation = () => {
+    setEditingConversationId(null)
+    setEditingConversationName("")
+  }
+
+  const handleSaveRenameConversation = async () => {
+    if (isLoading || !editingConversationId) return
+
+    const nextName = editingConversationName.trim()
+    if (!nextName) return
+
+    setIsMutatingConversation(true)
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          conversationId: editingConversationId,
+          name: nextName,
+        }),
+      })
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(payload?.error || `Conversation rename failed with status ${response.status}`)
+      }
+
+      await refreshConversations()
+      handleCancelRenameConversation()
+    } catch (error) {
+      console.error("Failed to rename conversation.", error)
+      const message = error instanceof Error ? error.message : "Failed to rename conversation."
+      window.alert(message)
+    } finally {
+      setIsMutatingConversation(false)
+    }
+  }
+
+  const handleDeleteConversation = async (targetConversationId: string) => {
+    if (isLoading) return
+
+    const targetConversation = conversations.find(
+      (conversation) => conversation.conversationId === targetConversationId,
+    )
+    const targetLabel = targetConversation?.title || targetConversationId
+
+    if (!window.confirm(`Delete "${targetLabel}"? This cannot be undone.`)) {
+      return
+    }
+
+    setIsMutatingConversation(true)
+    try {
+      const query = new URLSearchParams({
+        conversationId: targetConversationId,
+      })
+      if (conversationId) {
+        query.set("activeConversationId", conversationId)
+      }
+
+      const response = await fetch(`/api/conversations?${query.toString()}`, {
+        method: "DELETE",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(payload?.error || `Conversation delete failed with status ${response.status}`)
+      }
+
+      const data: ConversationResponse = await response.json()
+      const deletedActiveConversation = targetConversationId === conversationId
+
+      if (deletedActiveConversation) {
+        setConversationId(data.conversationId)
+        setModel(sanitizeModel(data.model))
+        window.localStorage.setItem(CONVERSATION_STORAGE_KEY, data.conversationId)
+        setMessages(data.messages)
+        resetAttachmentUiState()
+      }
+
+      if (editingConversationId === targetConversationId) {
+        handleCancelRenameConversation()
+      }
+
+      await refreshConversations()
+    } catch (error) {
+      console.error("Failed to delete conversation.", error)
+      const message = error instanceof Error ? error.message : "Failed to delete conversation."
+      window.alert(message)
+    } finally {
+      setIsMutatingConversation(false)
+    }
+  }
+
+=======
+>>>>>>> mcericola
   const activeToolStatus = useMemo(() => {
     if (status !== "submitted") {
       return null
@@ -1209,6 +1153,7 @@ export function ChatContainer() {
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
+<<<<<<< HEAD
 <<<<<<< HEAD
       {isMobile && isSidebarOpen ? (
         <button
@@ -1411,6 +1356,8 @@ export function ChatContainer() {
         </span>
       </button>
 
+=======
+>>>>>>> mcericola
       {isMobile && isSidebarOpen ? (
         <button
           type="button"
@@ -1547,6 +1494,7 @@ export function ChatContainer() {
           isSidebarOpen ? "md:ml-72" : "md:ml-0",
         )}
       >
+<<<<<<< HEAD
         <div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
           <button
             type="button"
@@ -1582,17 +1530,58 @@ export function ChatContainer() {
               variant="outline"
               className="h-9"
               disabled={isLoading || isSearching}
+=======
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-card/70 px-3 py-2 backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-foreground transition-colors hover:bg-muted"
+              aria-label="Toggle conversation sidebar"
+>>>>>>> mcericola
             >
-              {isSearching ? "Searching..." : "Find next"}
-            </Button>
-          </form>
-        </div>
-
-        {searchStatus ? (
-          <div className="border-b border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground">
-            {searchStatus}
+              <MenuIcon className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <LeafIcon className="h-4 w-4" />
+              </div>
+              <span className="hidden text-sm font-semibold tracking-tight text-foreground sm:inline">
+                Verdant
+              </span>
+            </div>
+            <p className="truncate text-sm font-medium text-foreground">
+              {activeConversation?.title || conversationId || "conversation"}
+            </p>
           </div>
-        ) : null}
+
+          <div className="flex shrink-0 items-center gap-2">
+            {themeMounted ? (
+              <button
+                type="button"
+                onClick={() => setTheme(isDarkTheme ? "light" : "dark")}
+                className="inline-flex h-8 items-center rounded-full border-2 border-emerald-700 bg-emerald-100/80 px-3 text-xs font-medium text-emerald-950 ring-1 ring-emerald-700/35 transition hover:-translate-y-0.5 hover:border-emerald-800 hover:bg-emerald-200 hover:shadow-[0_10px_24px_-10px_rgba(16,185,129,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/80 dark:border-emerald-300 dark:bg-emerald-500/30 dark:text-emerald-50 dark:ring-emerald-300/45 dark:hover:border-emerald-200 dark:hover:bg-emerald-500/45 dark:focus-visible:ring-emerald-300/95"
+                aria-label="Toggle theme"
+              >
+                {isDarkTheme ? "🌙 Dark" : "☀️ Light"}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setDashboardOpen(true)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs font-medium text-card-foreground shadow-sm transition hover:border-primary/50 hover:bg-background"
+              aria-label="Open carbon footprint dashboard"
+            >
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <span aria-hidden>🌿</span>
+              </div>
+              <span className="hidden whitespace-nowrap sm:inline" aria-label={`Estimated carbon footprint ${formatFootprint(footprintKg)}`}>
+                Footprint: {formatFootprint(footprintKg)}
+              </span>
+            </button>
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {messages.length === 0 ? (
@@ -1604,9 +1593,11 @@ export function ChatContainer() {
                   key={message.id}
                   message={message}
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
                   attachments={attachmentsByMessageId[message.id] ?? []}
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
-                  highlightTerms={searchHighlightTerms}
                 />
               ))}
               {activeToolStatus ? (
@@ -1619,11 +1610,14 @@ export function ChatContainer() {
                   </div>
                 </div>
               ) : null}
+<<<<<<< HEAD
 =======
                   isStreaming={isLoading && index === messages.length - 1 && message.role === "assistant"}
                 />
               ))}
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -1652,6 +1646,9 @@ export function ChatContainer() {
           model={model}
           onModelChange={(value) => setModel(sanitizeModel(value))}
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
           imageGenerationEnabled={imageGenerationEnabled}
           onToggleImageGeneration={() => setImageGenerationEnabled((current) => !current)}
           imageModel={imageModel}
@@ -1744,8 +1741,11 @@ export function ChatContainer() {
               current.filter((attachment) => attachment.id !== attachmentId),
             )
           }}
+<<<<<<< HEAD
 =======
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
         />
       </div>
 
@@ -1779,11 +1779,6 @@ export function ChatContainer() {
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 text-sm text-foreground">
             Tip: Shorter prompts and specific questions usually reduce token use and footprint.
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button asChild variant="outline" className="border-border/70">
-              <Link href="/carbon-calculation">Carbon emission calculation</Link>
-            </Button>
           </div>
         </DialogContent>
       </Dialog>

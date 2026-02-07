@@ -1,6 +1,7 @@
 "use client"
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Telescope } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -102,6 +103,98 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 >>>>>>> add_library
+=======
+import React, { useEffect, useMemo, useRef, useState } from "react"
+import { Telescope } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+import { toast } from "@/hooks/use-toast"
+
+export interface PendingAttachment {
+  id: string
+  name: string
+  size: number
+  type: string
+  kind?: "file" | "url"
+}
+
+type ModelProvider = "anthropic" | "openai" | "google"
+type ModelTier = "large" | "medium" | "small"
+
+interface ChatModelOption {
+  value: string
+  provider: ModelProvider
+  tier: ModelTier
+  name: string
+}
+
+interface ImageModelOption {
+  value: string
+  label: string
+}
+
+const CHAT_MODEL_OPTIONS: ChatModelOption[] = [
+  {
+    value: "anthropic/claude-opus-4-5",
+    provider: "anthropic",
+    tier: "large",
+    name: "Claude Opus 4.5",
+  },
+  {
+    value: "anthropic/claude-sonnet-4-5",
+    provider: "anthropic",
+    tier: "medium",
+    name: "Claude Sonnet 4.5",
+  },
+  {
+    value: "anthropic/claude-haiku-4-5",
+    provider: "anthropic",
+    tier: "small",
+    name: "Claude Haiku 4.5",
+  },
+  { value: "openai/gpt-5", provider: "openai", tier: "large", name: "GPT-5" },
+  { value: "openai/gpt-5-mini", provider: "openai", tier: "medium", name: "GPT-5 Mini" },
+  { value: "openai/gpt-5-nano", provider: "openai", tier: "small", name: "GPT-5 Nano" },
+  {
+    value: "google/gemini-2.5-pro",
+    provider: "google",
+    tier: "large",
+    name: "Gemini 2.5 Pro",
+  },
+  {
+    value: "google/gemini-2.5-flash",
+    provider: "google",
+    tier: "medium",
+    name: "Gemini 2.5 Flash",
+  },
+  {
+    value: "google/gemini-2.5-flash-lite",
+    provider: "google",
+    tier: "small",
+    name: "Gemini 2.5 Flash Lite",
+  },
+]
+
+const IMAGE_MODEL_OPTIONS: ImageModelOption[] = [
+  { value: "openai/gpt-image-1", label: "OpenAI · GPT Image 1" },
+  { value: "openai/dall-e-3", label: "OpenAI · DALL·E 3" },
+]
+
+const PROVIDERS: ModelProvider[] = ["anthropic", "openai", "google"]
+const TIERS: ModelTier[] = ["large", "medium", "small"]
+
+const PROVIDER_LABEL: Record<ModelProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+}
+
+const TIER_LABEL: Record<ModelTier, string> = {
+  large: "Large",
+  medium: "Medium",
+  small: "Small",
+}
+>>>>>>> mcericola
 
 function SendIcon({ className }: { className?: string }) {
   return (
@@ -317,6 +410,9 @@ interface ChatInputProps {
   model: string
   onModelChange: (value: string) => void
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
   imageGenerationEnabled: boolean
   onToggleImageGeneration: () => void
   imageModel: string
@@ -329,8 +425,11 @@ interface ChatInputProps {
   onAddFiles: (files: FileList | null) => void
   onAddAttachmentUrl: (url: string) => void
   onRemoveAttachment: (attachmentId: string) => void
+<<<<<<< HEAD
 =======
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 }
 
 export function ChatInput({
@@ -341,6 +440,9 @@ export function ChatInput({
   model,
   onModelChange,
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
   imageGenerationEnabled,
   onToggleImageGeneration,
   imageModel,
@@ -353,8 +455,11 @@ export function ChatInput({
   onAddFiles,
   onAddAttachmentUrl,
   onRemoveAttachment,
+<<<<<<< HEAD
 =======
 >>>>>>> add_library
+=======
+>>>>>>> mcericola
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -564,6 +669,9 @@ export function ChatInput({
     <div className="border-t border-border/60 bg-card/80 p-4 backdrop-blur-md">
       <div className="mx-auto max-w-3xl">
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> mcericola
         <div className="rounded-2xl border border-border bg-background p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md">
           {attachments.length > 0 ? (
             <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pb-1">
@@ -588,6 +696,7 @@ export function ChatInput({
               ))}
             </div>
           ) : null}
+<<<<<<< HEAD
 
           <div className="flex flex-col gap-2">
             <textarea
@@ -933,6 +1042,313 @@ export function ChatInput({
             )}
           </Button>
 >>>>>>> add_library
+=======
+
+          <div className="flex flex-col gap-2">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(event) => onInputChange(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                imageGenerationEnabled
+                  ? "Describe the image you want to generate..."
+                  : "Ask Verdant anything..."
+              }
+              rows={1}
+              disabled={isLoading}
+              className="min-h-[40px] max-h-[160px] w-full resize-none border-0 bg-transparent px-1 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+              aria-label="Chat message input"
+            />
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,.jpg,.jpeg,.png,.webp"
+                  onChange={(event) => {
+                    onAddFiles(event.target.files)
+                    event.currentTarget.value = ""
+                  }}
+                />
+
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                  )}
+                  aria-label="Add files"
+                  title="Add files"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  onClick={() => setUrlInputOpen((current) => !current)}
+                  disabled={isLoading}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    urlInputOpen
+                      ? controlActiveClass
+                      : "",
+                  )}
+                  aria-label="Add URL"
+                  title="Add URL"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  onClick={onToggleWebSearch}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground",
+                    controlHoverClass,
+                    controlFocusClass,
+                    webSearchEnabled ? controlActiveClass : "",
+                    isLoading ? "opacity-40" : "",
+                  )}
+                  aria-label={webSearchEnabled ? "Disable web search" : "Enable web search"}
+                  title={webSearchEnabled ? "Web search on" : "Web search off"}
+                >
+                  <GlobeIcon className="h-4 w-4" />
+                </Button>
+
+                <Button
+                  onClick={onToggleDeepSearch}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "group h-9 shrink-0 overflow-hidden rounded-full border px-2 text-xs font-medium transition-[width,background-color,border-color,color,transform,box-shadow] duration-200 ease-out",
+                    deepSearchEnabled
+                      ? `w-[148px] ${controlActiveClass}`
+                      : "w-9 border-border/60 bg-muted/20 text-foreground",
+                    controlHoverClass,
+                    controlFocusClass,
+                    isLoading ? "opacity-40" : "",
+                  )}
+                  aria-label={deepSearchEnabled ? "Disable deep search" : "Enable deep search"}
+                  title={deepSearchEnabled ? "Deep search on" : "Deep search off"}
+                >
+                  <span className="flex w-full items-center">
+                    <Telescope className="h-4 w-4 shrink-0" />
+                    <span
+                      className={cn(
+                        "ml-2 whitespace-nowrap text-[11px] lowercase transition-opacity duration-100",
+                        deepSearchEnabled ? "opacity-100" : "opacity-0",
+                      )}
+                    >
+                      deep research
+                    </span>
+                  </span>
+                </Button>
+
+                <Button
+                  onClick={onToggleImageGeneration}
+                  disabled={isLoading}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-full border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    imageGenerationEnabled ? controlActiveClass : "",
+                  )}
+                  aria-label={imageGenerationEnabled ? "Switch to text models" : "Switch to image models"}
+                  title={imageGenerationEnabled ? "Image mode" : "Text mode"}
+                >
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+
+                <div ref={modelMenuRootRef} className="relative">
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setModelMenuOpen((current) => !current)}
+                    className={cn(
+                      "inline-flex h-9 max-w-[230px] items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 text-xs text-foreground shadow-none disabled:opacity-40",
+                      controlHoverClass,
+                      controlFocusClass,
+                      modelMenuOpen ? controlActiveClass : "",
+                    )}
+                    aria-label={imageGenerationEnabled ? "Choose image model" : "Choose text model"}
+                    aria-expanded={modelMenuOpen}
+                    aria-haspopup="menu"
+                  >
+                    <span className="truncate">{activeModelLabel}</span>
+                    <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  </button>
+
+                  {modelMenuOpen ? (
+                    <div className="absolute left-0 top-auto z-40 min-w-[300px] rounded-xl border border-border/70 bg-background/95 p-2 shadow-xl backdrop-blur-md" style={{ bottom: "calc(100% + 8px)" }}>
+                      {imageGenerationEnabled ? (
+                        <div className="space-y-1">
+                          <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Image Models
+                          </p>
+                          {IMAGE_MODEL_OPTIONS.map((entry) => (
+                            <button
+                              key={entry.value}
+                              type="button"
+                              onClick={() => {
+                                onImageModelChange(entry.value)
+                                setModelMenuOpen(false)
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60",
+                                imageModel === entry.value ? "bg-primary/10 text-primary" : "",
+                              )}
+                            >
+                              <span className="truncate">{entry.label}</span>
+                              {imageModel === entry.value ? (
+                                <span className="ml-auto text-[11px] font-medium">Selected</span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="relative flex min-h-[220px] min-w-[460px]">
+                          <div className="w-44 border-r border-border/60 pr-2">
+                            <p className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Providers
+                            </p>
+                            {chatModelsByProvider.map(({ provider }) => (
+                              <button
+                                key={provider}
+                                type="button"
+                                onMouseEnter={() => setActiveProvider(provider)}
+                                onFocus={() => setActiveProvider(provider)}
+                                className={cn(
+                                  "mt-1 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                                  activeProvider === provider
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-foreground hover:bg-muted/60",
+                                )}
+                              >
+                                <span>{PROVIDER_LABEL[provider]}</span>
+                                <ChevronRightIcon className="h-3.5 w-3.5 opacity-75" />
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="w-[300px] pl-3">
+                            <p className="px-1 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {PROVIDER_LABEL[activeProvider]} Models
+                            </p>
+                            {TIERS.map((tier) => {
+                              const tierEntries = activeProviderModels.filter((entry) => entry.tier === tier)
+                              if (tierEntries.length === 0) {
+                                return null
+                              }
+
+                              return (
+                                <div key={tier} className="mb-2 rounded-lg border border-border/40 bg-muted/20 p-1">
+                                  <p className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                                    {TIER_LABEL[tier]}
+                                  </p>
+                                  {tierEntries.map((entry) => (
+                                    <button
+                                      key={entry.value}
+                                      type="button"
+                                      onClick={() => {
+                                        onModelChange(entry.value)
+                                        setModelMenuOpen(false)
+                                      }}
+                                      className={cn(
+                                        "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                                        model === entry.value
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-foreground hover:bg-muted/60",
+                                      )}
+                                    >
+                                      <span>{entry.name}</span>
+                                      {model === entry.value ? (
+                                        <span className="ml-auto text-[11px] font-medium">Selected</span>
+                                      ) : null}
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleToggleSpeech}
+                  disabled={!speechSupported || isLoading}
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    "h-9 w-9 shrink-0 rounded-xl border border-border/60 bg-muted/20 text-foreground disabled:opacity-40",
+                    controlHoverClass,
+                    controlFocusClass,
+                    isListening ? controlActiveClass : "",
+                  )}
+                  aria-label={isListening ? "Stop speech input" : "Start speech input"}
+                  title={
+                    speechSupported ? (isListening ? "Stop listening" : "Speak") : "Speech input not supported"
+                  }
+                >
+                  {isListening ? <StopIcon className="h-4 w-4" /> : <MicIcon className="h-4 w-4" />}
+                </Button>
+
+                <Button
+                  onClick={onSubmit}
+                  disabled={!input.trim() || isLoading}
+                  size="sm"
+                  className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                  aria-label="Send message"
+                >
+                  {isLoading ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                  ) : (
+                    <SendIcon className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {urlInputOpen ? (
+              <div className="mt-1 flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-2 py-1.5">
+                <input
+                  value={urlDraft}
+                  onChange={(event) => setUrlDraft(event.target.value)}
+                  placeholder="https://example.com/document.pdf"
+                  className="h-7 w-full border-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  aria-label="Document URL"
+                />
+                <Button
+                  onClick={handleAddUrl}
+                  disabled={!urlDraft.trim() || isLoading}
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 rounded-lg border border-border/60 px-2 text-xs"
+                >
+                  Add
+                </Button>
+              </div>
+            ) : null}
+          </div>
+>>>>>>> mcericola
         </div>
 
         <p className="mt-2 text-center text-xs text-muted-foreground">
