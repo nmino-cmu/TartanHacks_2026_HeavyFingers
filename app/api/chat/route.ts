@@ -525,14 +525,8 @@ export async function POST(req: Request) {
               continue
             }
 
-            const characters = Array.from(nextToken)
-            for (let index = 0; index < characters.length; index += STREAM_DELTA_CHARS) {
-              const delta = characters.slice(index, index + STREAM_DELTA_CHARS).join("")
-              if (!delta) {
-                continue
-              }
-
-              writer.write({ type: "text-delta", id: textPartId, delta })
+            writer.write({ type: "text-delta", id: textPartId, delta: nextToken })
+            if (STREAM_DELTA_DELAY_MS > 0 && pendingTokens.length > 0) {
               await waitFor(STREAM_DELTA_DELAY_MS, req.signal)
             }
           }
