@@ -73,6 +73,15 @@ const CHARITIES = [
   { id: "custom", label: "Custom address" },
 ]
 
+const USD_PER_TREE = 1.44
+const CANOPY_PRESETS = [
+  { id: "1-tree", trees: 1, carbonLbsPerYear: 48, xrp: Number((USD_PER_TREE * 1).toFixed(1)) },
+  { id: "5-tree", trees: 5, carbonLbsPerYear: 240, xrp: Number((USD_PER_TREE * 5).toFixed(1)) },
+  { id: "10-tree", trees: 10, carbonLbsPerYear: 480, xrp: Number((USD_PER_TREE * 10).toFixed(1)) },
+  { id: "25-tree", trees: 25, carbonLbsPerYear: 1200, xrp: Number((USD_PER_TREE * 25).toFixed(1)) },
+  { id: "50-tree", trees: 50, carbonLbsPerYear: 2400, xrp: Number((USD_PER_TREE * 50).toFixed(1)) },
+]
+
 function formatBalance(drops?: string) {
   if (!drops) return "—"
   const asNumber = Number(drops)
@@ -99,6 +108,7 @@ export default function WalletPage() {
   >([])
   const [txLoading, setTxLoading] = useState(false)
   const [donationTotal, setDonationTotal] = useState(0)
+  const [selectedCanopyPreset, setSelectedCanopyPreset] = useState<string | null>(null)
 
   useEffect(() => {
     if (!wallet?.address) return
@@ -193,10 +203,17 @@ export default function WalletPage() {
       return
     }
     setBusy("send")
+
+    // If a canopy preset is selected, override the numeric XRP amount with the preset XRPL value
+    // derived from ~$1.44 USD per tree (1:1 numerical mapping to XRP on testnet).
+    const effectiveAmount = selectedCanopyPreset
+      ? CANOPY_PRESETS.find((p) => p.id === selectedCanopyPreset)?.xrp?.toString() || amount
+      : amount
+
     const response = await request("POST", {
       action: "send-check",
       destination,
-      amount,
+      amount: effectiveAmount,
       donorName,
       donorEmail,
     })
@@ -213,8 +230,11 @@ export default function WalletPage() {
     setBusy(null)
   }
 
-  async function handleSelectCharity(value: string) {
+async function handleSelectCharity(value: string, opts?: { preservePreset?: boolean }) {
     setSelectedCharity(value as "custom" | string)
+    if (!opts?.preservePreset) {
+      setSelectedCanopyPreset(null)
+    }
     if (value === "custom") {
       setDestination("")
       return
@@ -538,6 +558,34 @@ export default function WalletPage() {
                     We request a fresh deposit address for the chosen nonprofit. Pick “Custom address” to paste your own.
                   </p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="canopy" className="flex items-center gap-2 text-sm">
+                    <Leaf className="h-4 w-4 text-emerald-700" />
+                    Canopy Tree Project (Every.org · Earthday.org)
+                  </Label>
+                  <Select
+                    value={selectedCanopyPreset ?? undefined}
+                    onValueChange={async (value) => {
+                  setSelectedCanopyPreset(value)
+                  setAmount(String(CANOPY_PRESETS.find((p) => p.id === value)?.xrp ?? amount))
+                  await handleSelectCharity("earthday.org", { preservePreset: true })
+                }}
+              >
+                <SelectTrigger id="canopy" placeholder="Pick trees & carbon" className="text-left">
+                  <SelectValue placeholder="Pick trees & carbon" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CANOPY_PRESETS.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>
+                      {preset.trees} trees · ~{preset.carbonLbsPerYear} lbs CO₂/yr · {preset.xrp} XRP
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Quick-pick XRP amounts mapped to Every.org’s Canopy Tree Project tiers at ~$1.44 USD per tree converted 1:1 to XRP on testnet; each tier estimates yearly carbon removal.
+              </p>
+            </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="donor-name" className="text-sm">
@@ -635,7 +683,10 @@ export default function WalletPage() {
                     min="1"
                     step="0.1"
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    onChange={(e) => {
+                      setAmount(e.target.value)
+                      setSelectedCanopyPreset(null)
+                    }}
                     required
                     placeholder="10"
                   />

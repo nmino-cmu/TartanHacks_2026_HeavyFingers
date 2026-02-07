@@ -9,10 +9,11 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import xrpl
 try:
-    from cryptography.fernet import Fernet
+    from cryptography.fernet import Fernet, InvalidToken
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -80,7 +81,10 @@ def _decrypt_seed(raw: Dict[str, Any], passphrase: str) -> str:
     expected_hmac = raw.get("hmac")
     if expected_hmac and hashlib.sha256(seed_ct).hexdigest() != expected_hmac:
         raise ValueError("Wallet file integrity check failed.")
-    return fernet.decrypt(seed_ct).decode()
+    try:
+        return fernet.decrypt(seed_ct).decode()
+    except InvalidToken as exc:
+        raise ValueError("Incorrect passphrase for encrypted wallet file.") from exc
 
 
 def _require_passphrase(explicit: Optional[str] = None) -> str:
@@ -90,7 +94,12 @@ def _require_passphrase(explicit: Optional[str] = None) -> str:
     if env:
         return env
     # For CLI use only; API callers should set WALLET_PASSPHRASE
-    return getpass.getpass("Wallet passphrase: ")
+    try:
+        return getpass.getpass("Wallet passphrase: ")
+    except (EOFError, getpass.GetPassWarning):
+        raise ValueError(
+            "Passphrase is required. Set WALLET_PASSPHRASE env var or pass --passphrase when running wallet.py."
+        )
 
 
 def create_wallet(wallet_file: Path = DEFAULT_WALLET_FILE, passphrase: Optional[str] = None) -> Dict[str, Any]:
@@ -232,6 +241,21 @@ def refresh_account_info(address: str) -> Dict[str, Any]:
     return response.result
 
 
+def _to_drops(amount: str) -> str:
+    """
+    Convert an XRP amount expressed in XRP (can include decimals) into drops as a string.
+    XRPL transactions require drops to be an integer string.
+    """
+    try:
+        dec_amount = Decimal(amount)
+    except (InvalidOperation, TypeError):
+        raise ValueError("Amount must be a numeric value in XRP.")
+    if dec_amount <= 0:
+        raise ValueError("Amount must be greater than zero.")
+    drops = (dec_amount * Decimal(1_000_000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return str(int(drops))
+
+
 def send_check(wallet_file: Path, amount: str, destination: str, passphrase: Optional[str] = None) -> Dict[str, Any]:
     wallet_payload = load_wallet(wallet_file, passphrase)
     seed = wallet_payload.get("seed")
@@ -239,9 +263,10 @@ def send_check(wallet_file: Path, amount: str, destination: str, passphrase: Opt
         raise ValueError("Wallet seed missing from wallet file. Decryption failed or file is empty.")
 
     wallet = Wallet.from_seed(seed)
+    send_max_drops = _to_drops(amount)
     check_tx = CheckCreate(
         account=wallet.address,
-        send_max=amount,
+        send_max=send_max_drops,
         destination=destination,
     )
 
@@ -307,7 +332,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to wallet JSON file",
     )
     send_parser.add_argument("--destination", required=True)
-    send_parser.add_argument("--amount", required=True, help="Amount in XRP for the check")
+    send_parser.add_argument(
+        "--amount",
+        required=True,
+        help="Amount in XRP for the check (decimals allowed; converted to drops on submit)",
+    )
     send_parser.add_argument(
         "--passphrase",
         help="Passphrase to decrypt the wallet (falls back to WALLET_PASSPHRASE env)",

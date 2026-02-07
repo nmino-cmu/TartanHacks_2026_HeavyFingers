@@ -1,10 +1,10 @@
 {
   "activeFileDetails": {
     "existsActive": true,
-    "activeChatIndex": 13,
-    "activeJsonFilePath": "/Users/nicholasmino/Desktop/ProgrammingFiles/TartanHacks_2026_HeavyFingers/dedalus_stuff/conversations/conversation13.json"
+    "activeChatIndex": 3,
+    "activeJsonFilePath": "/home/sportsman/coding/hackathons/tartanhacks26/dedalus_stuff/conversations/conversation3.json"
   },
-  "convoName": "Demo Convo",
+  "convoName": "Conversation 3",
   "convoIndex": 25,
   "carbonFootprint": 0,
   "permanent memories": []
