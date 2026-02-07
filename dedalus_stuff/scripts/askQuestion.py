@@ -23,6 +23,7 @@ async def ask(message):
     api_key = os.getenv("DEDALUS_API_KEY")
     if not api_key:
         raise RuntimeError("Missing DEDALUS_API_KEY")
+    
 
     client = AsyncDedalus(api_key = api_key)
 
