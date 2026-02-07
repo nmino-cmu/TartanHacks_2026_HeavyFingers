@@ -1,8 +1,5 @@
 import { spawn } from "node:child_process"
-<<<<<<< HEAD
 import { promises as fs } from "node:fs"
-=======
->>>>>>> add_library
 import path from "node:path"
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai"
 import {
@@ -23,7 +20,6 @@ interface AskQuestionEvent {
   finish_reason?: unknown
 }
 
-<<<<<<< HEAD
 interface UploadedOcrAttachment {
   name: string
   size: number
@@ -37,30 +33,7 @@ interface ConversationLockQueue {
   tail: Promise<void>
 }
 
-type RoutingTier = "light" | "heavy" | "tooling"
-
-interface CarbonRoutingSettings {
-  routingSensitivity: number
-  historyCompression: number
-}
-
-interface RoutingDecision {
-  tier: RoutingTier
-  model: string
-  heavyModel: string
-  maxTokens: number
-  historyWindowMessages: number
-  historySummaryMaxChars: number
-  availableModels: string[]
-}
-
-interface CachedToolContext {
-  value: string
-  expiresAt: number
-}
-
 const conversationLockQueues = new Map<string, ConversationLockQueue>()
-const toolContextCache = new Map<string, CachedToolContext>()
 
 const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
 const RELIABLE_FALLBACK_MODEL = "openai/gpt-5-mini"
@@ -72,13 +45,6 @@ const WEB_SEARCH_MCP_SERVER = "akakak/parallel-search-mcp"
 const DEEP_SEARCH_MCP_SERVER = "tsion/sonar"
 const WEB_SEARCH_MODEL = process.env.CHAT_WEB_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
 const DEEP_SEARCH_MODEL = process.env.CHAT_DEEP_SEARCH_MODEL?.trim() || "openai/gpt-5-mini"
-const LIGHT_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_LIGHT?.trim() || "openai/gpt-5-nano"
-const TOOLING_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_TOOLING?.trim() || "openai/gpt-5-mini"
-const HEAVY_TIER_MODEL_DEFAULT = process.env.CHAT_TIER_MODEL_HEAVY?.trim() || DEFAULT_MODEL
-const LIGHT_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_LIGHT ?? 900)
-const TOOLING_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_TOOLING ?? 1400)
-const HEAVY_TIER_MAX_TOKENS = Number(process.env.CHAT_TIER_MAX_TOKENS_HEAVY ?? 2600)
-const TOOL_CONTEXT_CACHE_TTL_MS = Number(process.env.CHAT_TOOL_CACHE_TTL_MS ?? 3 * 60 * 1000)
 const MAX_OCR_ATTACHMENTS = 5
 const MAX_OCR_ATTACHMENT_BYTES = 50 * 1024 * 1024
 const MAX_BASE64_CHARS_PER_ATTACHMENT = Math.ceil((MAX_OCR_ATTACHMENT_BYTES * 4) / 3) + 512
@@ -113,46 +79,6 @@ const ALLOWED_MODELS = new Set<string>([...CHAT_MODELS, ...IMAGE_MODELS])
 const STREAM_DELTA_DELAY_MS = 10
 const STREAM_TOKENS_PER_FLUSH = 2
 
-const DEFAULT_CARBON_SETTINGS: CarbonRoutingSettings = {
-  routingSensitivity: 55,
-  historyCompression: 50,
-}
-=======
-interface ConversationLockQueue {
-  tail: Promise<void>
-}
-
-const conversationLockQueues = new Map<string, ConversationLockQueue>()
-
-const DEFAULT_MODEL = "anthropic/claude-opus-4-5"
-const RELIABLE_FALLBACK_MODEL = "openai/gpt-4o-mini"
-const ENABLE_MODEL_FAILOVER = process.env.CHAT_ENABLE_MODEL_FAILOVER?.trim() === "1"
-const ENABLE_RECOVERY_LOGS = process.env.CHAT_RECOVERY_LOGS?.trim() === "1"
-const ALLOWED_MODELS = new Set<string>([
-  "anthropic/claude-opus-4-5",
-  "openai/gpt-4o-mini",
-  "google/gemini-1.5-pro",
-])
-
-const STREAM_DELTA_DELAY_MS = Math.max(
-  0,
-  Math.min(
-    40,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "0", 10) || 0,
-  ),
-)
-const STREAM_TOKENS_PER_FLUSH = Math.max(
-  1,
-  Math.min(
-    8,
-    Number.parseInt(process.env.CHAT_STREAM_TOKENS_PER_FLUSH?.trim() || "2", 10) || 2,
-  ),
-)
-<<<<<<< HEAD
->>>>>>> add_library
-=======
->>>>>>> mcericola
-
 function sanitizeConversationId(value?: string | null): string | null {
   if (!value) return null
   const sanitized = value.trim().replace(/[^a-zA-Z0-9_-]/g, "")
@@ -170,7 +96,6 @@ function sanitizeRequestedModel(value: unknown): string | null {
   }
 
   return ALLOWED_MODELS.has(trimmed) ? trimmed : null
-<<<<<<< HEAD
 }
 
 function sanitizeRequestedImageModel(value: unknown): string | null {
@@ -184,8 +109,6 @@ function sanitizeRequestedImageModel(value: unknown): string | null {
   }
 
   return IMAGE_MODELS.has(trimmed) ? trimmed : null
-=======
->>>>>>> add_library
 }
 
 function extractTextFromUIMessage(message: UIMessage): string {
@@ -241,7 +164,6 @@ function normalizeFinishReason(rawReason: string): StreamFinishReason {
   }
 }
 
-<<<<<<< HEAD
 function splitIntoStreamingTokens(text: string): string[] {
   if (!text) {
     return []
@@ -255,8 +177,6 @@ function splitIntoStreamingTokens(text: string): string[] {
   return tokens
 }
 
-=======
->>>>>>> add_library
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
@@ -272,13 +192,10 @@ function getErrorMessage(error: unknown): string {
 function toClientError(error: unknown): string {
   const message = getErrorMessage(error)
   const normalized = message.toLowerCase()
-<<<<<<< HEAD
   if (message.includes("Missing DEDALUS_API_KEY")) {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
 
-=======
->>>>>>> add_library
   if (message.includes("DEDALUS_API_KEY")) {
     return "Missing or invalid DEDALUS_API_KEY. Set a valid key and restart the server."
   }
@@ -295,7 +212,6 @@ function toClientError(error: unknown): string {
     return "Dedalus request was blocked upstream (Cloudflare). Please retry in a moment."
   }
 
-<<<<<<< HEAD
   if (normalized.includes("no valid ocr attachments")) {
     return "No valid OCR attachments were found. Upload PDF/PNG/JPG/WEBP or add an https URL."
   }
@@ -838,11 +754,6 @@ async function buildOcrPromptContext(
   ].join("\n\n")
 }
 
-=======
-  return message || "Chat request failed."
-}
-
->>>>>>> add_library
 async function acquireConversationLock(conversationId: string): Promise<() => void> {
   const queue = conversationLockQueues.get(conversationId) ?? { tail: Promise.resolve() }
   const previousTail = queue.tail
@@ -897,7 +808,6 @@ async function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-<<<<<<< HEAD
 async function waitForDrainSignal(
   signal: AbortSignal,
   setWakeDrain: (resolver: (() => void) | null) => void,
@@ -932,8 +842,6 @@ async function waitForDrainSignal(
   })
 }
 
-=======
->>>>>>> add_library
 async function streamFromAskQuestionScript(
   userMessage: string,
   conversationId: string,
@@ -1100,11 +1008,7 @@ function isRetryableDedalusServerError(error: unknown): boolean {
 
 function getModelFailoverChain(preferredModel: string): string[] {
   if (!ENABLE_MODEL_FAILOVER) {
-<<<<<<< HEAD
     if (CHAT_MODELS.has(preferredModel)) {
-=======
-    if (ALLOWED_MODELS.has(preferredModel)) {
->>>>>>> add_library
       return [preferredModel]
     }
     return [DEFAULT_MODEL]
@@ -1114,11 +1018,7 @@ function getModelFailoverChain(preferredModel: string): string[] {
   const deduped: string[] = []
 
   for (const candidate of candidates) {
-<<<<<<< HEAD
     if (!CHAT_MODELS.has(candidate)) {
-=======
-    if (!ALLOWED_MODELS.has(candidate)) {
->>>>>>> add_library
       continue
     }
     if (!deduped.includes(candidate)) {
@@ -1153,7 +1053,6 @@ export async function POST(req: Request) {
       messages?: UIMessage[]
       conversationId?: unknown
       model?: unknown
-<<<<<<< HEAD
       webSearchEnabled?: unknown
       deepSearchEnabled?: unknown
       imageGenerationEnabled?: unknown
@@ -1166,10 +1065,6 @@ export async function POST(req: Request) {
     const imageGenerationEnabled = requestBody.imageGenerationEnabled === true
     const requestedImageModel = sanitizeRequestedImageModel(requestBody.imageModel)
     const uploadedOcrAttachments = decodeOcrAttachments(requestBody.attachments)
-=======
-    }
-    const messages = Array.isArray(requestBody.messages) ? requestBody.messages : []
->>>>>>> add_library
     const requestedConversationIdFromBody =
       typeof requestBody.conversationId === "string" ? requestBody.conversationId : undefined
     const requestedConversationId =
@@ -1191,17 +1086,10 @@ export async function POST(req: Request) {
     }
 
     const requestedModel = sanitizeRequestedModel(requestBody.model)
-<<<<<<< HEAD
     const selectedModel =
       requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
-<<<<<<< HEAD
     const selectedImageModel =
       requestedImageModel || (isImageModel(selectedModel) ? selectedModel : DEFAULT_IMAGE_MODEL)
-=======
->>>>>>> add_library
-=======
-    const selectedModel = requestedModel || process.env.DEDALUS_MODEL?.trim() || DEFAULT_MODEL
->>>>>>> mcericola
 
     releaseConversationLock = await acquireConversationLock(sanitizedRequestedConversationId)
 
@@ -1233,7 +1121,6 @@ export async function POST(req: Request) {
       }
       return Response.json({ error: "No user message found in chat payload." }, { status: 400 })
     }
-<<<<<<< HEAD
 
     const hasAttachmentPayload = Array.isArray(requestBody.attachments) && requestBody.attachments.length > 0
     if (hasAttachmentPayload && uploadedOcrAttachments.length === 0) {
@@ -1295,17 +1182,11 @@ export async function POST(req: Request) {
         promptForModel = `${promptForModel}\n\nDeep search was requested but failed on the server. Do not invent deep-search findings. If needed, say deep search is temporarily unavailable.`
       }
     }
-=======
->>>>>>> add_library
 
     const stream = createUIMessageStream({
       originalMessages: messages,
       onError: (error) => {
-<<<<<<< HEAD
         console.error("Chat stream failed.", error)
-=======
-        console.error("askQuestion.py stream failed.", error)
->>>>>>> add_library
         return toClientError(error)
       },
       execute: async ({ writer }) => {
@@ -1327,7 +1208,6 @@ export async function POST(req: Request) {
           resolve()
         }
 
-<<<<<<< HEAD
         const enqueueText = (text: string) => {
           if (!text) {
             return
@@ -1341,35 +1221,18 @@ export async function POST(req: Request) {
           for (const token of tokens) {
             pendingTokens.push(token)
           }
-=======
-        const enqueueToken = (token: string) => {
-          if (!token) {
-            return
-          }
-          pendingTokens.push(token)
->>>>>>> add_library
           notifyDrain()
         }
 
         const drainTokens = async () => {
           while (!streamClosed || pendingTokens.length > 0) {
-<<<<<<< HEAD
-<<<<<<< HEAD
             if (pendingTokens.length === 0) {
-=======
-            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
->>>>>>> add_library
-=======
-            if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
->>>>>>> mcericola
               await new Promise<void>((resolve) => {
                 wakeDrain = resolve
               })
               continue
             }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
             if (!streamClosed && pendingTokens.length < STREAM_TOKENS_PER_FLUSH) {
               await waitForDrainSignal(
                 req.signal,
@@ -1378,12 +1241,6 @@ export async function POST(req: Request) {
                 },
                 16,
               )
-=======
-            if (pendingTokens.length === 0) {
->>>>>>> add_library
-=======
-            if (pendingTokens.length === 0) {
->>>>>>> mcericola
               continue
             }
 
@@ -1411,7 +1268,6 @@ export async function POST(req: Request) {
         writer.write({ type: "start-step" })
         writer.write({ type: "text-start", id: textPartId })
         try {
-<<<<<<< HEAD
           if (imageGenerationEnabled || isImageModel(selectedModel)) {
             assistantText = await generateImageMarkdown(promptForModel, selectedImageModel, req.signal)
             modelUsedForResponse = selectedImageModel
@@ -1428,33 +1284,16 @@ export async function POST(req: Request) {
           for (const candidateModel of modelCandidates) {
             const maxAttempts = ENABLE_MODEL_FAILOVER ? 2 : 1
 
-=======
-          let pythonResult: { assistantText: string; finishReason: StreamFinishReason } | null = null
-          let lastModelError: unknown = null
-          const modelCandidates = getModelFailoverChain(selectedModel)
-
-          for (const candidateModel of modelCandidates) {
-            const maxAttempts = ENABLE_MODEL_FAILOVER ? 2 : 1
-
->>>>>>> add_library
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
               try {
                 try {
                   pythonResult = await streamFromAskQuestionScript(
-<<<<<<< HEAD
                     promptForModel,
-=======
-                    latestUserMessage,
->>>>>>> add_library
                     conversationId,
                     req.signal,
                     (token) => {
                       sawTokenEvent = true
-<<<<<<< HEAD
                       enqueueText(token)
-=======
-                      enqueueToken(token)
->>>>>>> add_library
                     },
                     candidateModel,
                     true,
@@ -1471,20 +1310,12 @@ export async function POST(req: Request) {
                   })
 
                   pythonResult = await streamFromAskQuestionScript(
-<<<<<<< HEAD
                     promptForModel,
-=======
-                    latestUserMessage,
->>>>>>> add_library
                     conversationId,
                     req.signal,
                     (token) => {
                       sawTokenEvent = true
-<<<<<<< HEAD
                       enqueueText(token)
-=======
-                      enqueueToken(token)
->>>>>>> add_library
                     },
                     candidateModel,
                     false,
@@ -1533,11 +1364,7 @@ export async function POST(req: Request) {
           assistantText = pythonResult.assistantText
 
           if (!sawTokenEvent && pythonResult.assistantText) {
-<<<<<<< HEAD
             enqueueText(pythonResult.assistantText)
-=======
-            enqueueToken(pythonResult.assistantText)
->>>>>>> add_library
           }
           streamCompleted = true
         } finally {
