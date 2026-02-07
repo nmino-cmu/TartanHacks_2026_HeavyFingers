@@ -209,14 +209,15 @@ def list_transactions(wallet_file: Path, limit: int = 10, passphrase: Optional[s
     txs_raw = res.result.get("transactions", [])
     simplified = []
     for tx in txs_raw:
-        tx_body = tx.get("tx", {})
+        tx_body = tx.get("tx", {}) or tx
         simplified.append(
             {
-                "hash": tx_body.get("hash"),
-                "type": tx_body.get("TransactionType"),
+                "hash": tx_body.get("hash") or tx.get("hash"),
+                "type": tx_body.get("TransactionType") or tx_body.get("type") or tx_body.get("transaction_type"),
                 "date": tx_body.get("date"),
                 "validated": tx.get("validated", False),
-              }
+                "amount": tx_body.get("SendMax") or tx_body.get("Amount"),
+            }
         )
     return {"address": address, "transactions": simplified}
 

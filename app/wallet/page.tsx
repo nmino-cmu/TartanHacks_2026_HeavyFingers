@@ -94,8 +94,11 @@ export default function WalletPage() {
   const [selectedCharity, setSelectedCharity] = useState<"custom" | string>("custom")
   const [donorName, setDonorName] = useState("")
   const [donorEmail, setDonorEmail] = useState("")
-  const [transactions, setTransactions] = useState<{ hash?: string; type?: string; validated?: boolean; date?: string }[]>([])
+  const [transactions, setTransactions] = useState<
+    { hash?: string; type?: string; validated?: boolean; date?: string; donor_name?: string; donated_amount?: number | string }[]
+  >([])
   const [txLoading, setTxLoading] = useState(false)
+  const [donationTotal, setDonationTotal] = useState(0)
 
   useEffect(() => {
     if (!wallet?.address) return
@@ -132,6 +135,7 @@ export default function WalletPage() {
     const response = await request("GET", { refresh })
     if (response.status === "ok") {
       setWallet(response.data)
+      setDonationTotal(response.data?.donation_total ?? 0)
       loadTransactions()
     } else {
       toast({ title: "Unable to load wallet", description: response.error, variant: "destructive" })
@@ -193,12 +197,16 @@ export default function WalletPage() {
       action: "send-check",
       destination,
       amount,
+      donorName,
+      donorEmail,
     })
     if (response.status === "ok") {
+      setDonationTotal(response.data?.donation_total ?? donationTotal)
       toast({
         title: "Check created",
         description: `Sent ${amount} XRP to ${destination.slice(0, 6)}…`,
       })
+      loadTransactions(10, true)
     } else {
       toast({ title: "Send failed", description: response.error, variant: "destructive" })
     }
@@ -259,6 +267,11 @@ export default function WalletPage() {
 
   return (
     <div className="mosaic-bg min-h-dvh pb-16">
+      <div className="pointer-events-none fixed right-6 top-6 z-50">
+        <Badge className="bg-emerald-900 px-4 py-2 text-sm text-emerald-50 shadow-lg backdrop-blur">
+          Donated: {donationTotal.toFixed(2)} XRP
+        </Badge>
+      </div>
       <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-10">
         <div className="flex items-center justify-between">
           <a
@@ -419,13 +432,15 @@ export default function WalletPage() {
                     {transactions.length === 0 && !txLoading && (
                       <p className="text-muted-foreground">No transactions yet.</p>
                     )}
-                    {transactions.map((tx) => (
+                    {transactions.map((tx, idx) => (
                       <div
-                        key={tx.hash}
+                        key={tx.hash ?? `pending-${idx}`}
                         className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/50 px-3 py-2"
                       >
                         <div className="flex flex-col">
-                          <span className="font-medium text-foreground">{tx.type ?? "Unknown"}</span>
+                          <span className="font-medium text-foreground">
+                            {tx.donor_name || tx.type || "Unknown"}
+                          </span>
                           <span className="font-mono text-[11px] text-muted-foreground">
                             {tx.hash ? `${tx.hash.slice(0, 8)}···${tx.hash.slice(-6)}` : "(pending)"}
                           </span>

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server"
 import path from "path"
 import { execFile } from "child_process"
 import { promisify } from "util"
+import { promises as fs } from "fs"
 
 const execFileAsync = promisify(execFile)
 
 const WALLET_SCRIPT = path.join(process.cwd(), "wallet", "wallet.py")
 const DEFAULT_WALLET_PATH = path.join(process.cwd(), "wallet", "wallets", "wallet.json")
+const DONATION_PATH = path.join(process.cwd(), "wallet", "wallets", "donations.json")
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3"
 const WALLET_PASSPHRASE = process.env.WALLET_PASSPHRASE
 
@@ -41,6 +43,49 @@ async function runWalletCommand(args: string[]) {
   // Do not expose the seed or raw payload to the client.
   const { seed, raw, ...rest } = parsed.data ?? {}
   return rest
+}
+
+async function readDonationTotal(): Promise<number> {
+  try {
+    const raw = await fs.readFile(DONATION_PATH, "utf-8")
+    const parsed = JSON.parse(raw)
+    const n = Number(parsed.total)
+    return Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+async function writeDonationTotal(total: number) {
+  await fs.mkdir(path.dirname(DONATION_PATH), { recursive: true })
+  let records: any[] = []
+  try {
+    const raw = await fs.readFile(DONATION_PATH, "utf-8")
+    const parsed = JSON.parse(raw)
+    records = Array.isArray(parsed.records) ? parsed.records : []
+  } catch {
+    records = []
+  }
+  await fs.writeFile(DONATION_PATH, JSON.stringify({ total, records }), "utf-8")
+}
+
+async function readDonationRecords(): Promise<any[]> {
+  try {
+    const raw = await fs.readFile(DONATION_PATH, "utf-8")
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed.records)) return parsed.records
+    return []
+  } catch {
+    return []
+  }
+}
+
+async function appendDonationRecord(record: any) {
+  const total = await readDonationTotal()
+  const records = await readDonationRecords()
+  records.unshift(record)
+  await fs.mkdir(path.dirname(DONATION_PATH), { recursive: true })
+  await fs.writeFile(DONATION_PATH, JSON.stringify({ total, records }), "utf-8")
 }
 
 async function handleAction(action: WalletAction, payload: any) {
@@ -111,7 +156,15 @@ async function handleAction(action: WalletAction, payload: any) {
         "--limit",
         String(limit),
       ]
-      return runWalletCommand(args)
+      const txs = await runWalletCommand(args)
+      const records = await readDonationRecords()
+      const enriched = Array.isArray(txs?.transactions)
+        ? txs.transactions.map((tx: any) => {
+            const match = records.find((r) => r.hash && tx.hash && r.hash === tx.hash)
+            return match ? { ...tx, donor_name: match.donor_name, donated_amount: match.amount } : tx
+          })
+        : []
+      return { ...txs, transactions: enriched }
     }
     default:
       throw new Error(`Unsupported action: ${action satisfies never}`)
@@ -124,7 +177,8 @@ export async function GET(req: Request) {
 
   try {
     const data = await handleAction("info", { refresh })
-    return NextResponse.json({ status: "ok", data })
+    const donation_total = await readDonationTotal()
+    return NextResponse.json({ status: "ok", data: { ...data, donation_total } })
   } catch (error: any) {
     return NextResponse.json(
       { status: "error", error: error?.message ?? "Unknown error" },
@@ -146,6 +200,23 @@ export async function POST(req: Request) {
 
   try {
     const data = await handleAction(action, body)
+
+    if (action === "send-check") {
+      const prevTotal = await readDonationTotal()
+      const increment = Number(body?.amount) || 0
+      const newTotal = prevTotal + increment
+      await writeDonationTotal(newTotal)
+      if (data?.tx_hash) {
+        await appendDonationRecord({
+          hash: data.tx_hash,
+          donor_name: body?.donorName || body?.donor_name || "",
+          amount: increment,
+          ts: Date.now(),
+        })
+      }
+      return NextResponse.json({ status: "ok", data: { ...data, donation_total: newTotal } })
+    }
+
     return NextResponse.json({ status: "ok", data })
   } catch (error: any) {
     return NextResponse.json(
