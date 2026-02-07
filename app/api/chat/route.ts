@@ -38,8 +38,15 @@ const ALLOWED_MODELS = new Set<string>([
 const STREAM_DELTA_DELAY_MS = Math.max(
   0,
   Math.min(
-    20,
-    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "4", 10) || 0,
+    40,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_DELAY_MS?.trim() || "12", 10) || 0,
+  ),
+)
+const STREAM_DELTA_CHARS = Math.max(
+  1,
+  Math.min(
+    8,
+    Number.parseInt(process.env.CHAT_STREAM_DELTA_CHARS?.trim() || "1", 10) || 1,
   ),
 )
 
@@ -518,8 +525,14 @@ export async function POST(req: Request) {
               continue
             }
 
-            for (const character of Array.from(nextToken)) {
-              writer.write({ type: "text-delta", id: textPartId, delta: character })
+            const characters = Array.from(nextToken)
+            for (let index = 0; index < characters.length; index += STREAM_DELTA_CHARS) {
+              const delta = characters.slice(index, index + STREAM_DELTA_CHARS).join("")
+              if (!delta) {
+                continue
+              }
+
+              writer.write({ type: "text-delta", id: textPartId, delta })
               await waitFor(STREAM_DELTA_DELAY_MS, req.signal)
             }
           }

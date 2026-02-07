@@ -233,8 +233,9 @@ export function ChatContainer() {
   const footprintKg = tokenEstimate * KG_PER_TOKEN
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    const behavior = status === "streaming" || status === "submitted" ? "auto" : "smooth"
+    messagesEndRef.current?.scrollIntoView({ behavior })
+  }, [messages, status])
 
   useEffect(() => {
     if (!isMobile) {

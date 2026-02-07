@@ -234,6 +234,33 @@ function normalizeStoredMessages(value: unknown): StoredMessage[] {
   })
 }
 
+function mergeStoredMessagesPreservingExisting(
+  existingMessages: StoredMessage[],
+  incomingMessages: StoredMessage[],
+): StoredMessage[] {
+  if (existingMessages.length === 0) {
+    return incomingMessages
+  }
+
+  if (incomingMessages.length === 0) {
+    return existingMessages
+  }
+
+  const mergedMessages = [...existingMessages]
+  const seenMessageIds = new Set(existingMessages.map((message) => message.id))
+
+  for (const incomingMessage of incomingMessages) {
+    if (seenMessageIds.has(incomingMessage.id)) {
+      continue
+    }
+
+    mergedMessages.push(incomingMessage)
+    seenMessageIds.add(incomingMessage.id)
+  }
+
+  return mergedMessages
+}
+
 function normalizeBundle(raw: unknown, conversationId: string): ConversationBundle {
   const fallback = createConversationBundle(conversationId)
   if (!raw || typeof raw !== "object") {
@@ -519,9 +546,13 @@ export async function persistPromptSnapshot(
     : await ensureExistingConversationRecord(conversationId)
   const modelName = typeof options?.modelName === "string" ? options.modelName.trim() : ""
 
-  record.bundle.messages.messages = messages
+  const incomingMessages = messages
     .map((message) => toStoredMessage(message))
     .filter((message): message is StoredMessage => message !== null)
+  record.bundle.messages.messages = mergeStoredMessagesPreservingExisting(
+    record.bundle.messages.messages,
+    incomingMessages,
+  )
 
   if (modelName) {
     record.bundle.model.kind = DEFAULT_MODEL_KIND

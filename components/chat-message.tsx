@@ -48,6 +48,7 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const isUser = message.role === "user"
+  const isStreamingAssistant = Boolean(isStreaming && !isUser)
 
   const textFromParts = message.parts
     ?.filter((p): p is { type: "text"; text: string } => p.type === "text")
@@ -79,11 +80,15 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         )}
       >
         <div className="space-y-2 break-words [&_*]:max-w-full [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-3">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {text || ""}
-          </ReactMarkdown>
+          {isStreamingAssistant ? (
+            <div className="whitespace-pre-wrap">{text || ""}</div>
+          ) : (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {text || ""}
+            </ReactMarkdown>
+          )}
         </div>
-        {isStreaming && !isUser && (
+        {isStreamingAssistant && (
           <span className="typing-cursor" />
         )}
       </div>
