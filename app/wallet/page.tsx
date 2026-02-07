@@ -138,6 +138,15 @@ export default function WalletPage() {
   return (
     <div className="mosaic-bg min-h-dvh pb-16">
       <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-10">
+        <div className="flex items-center justify-between">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-white/80 px-3 py-1.5 text-sm font-medium text-primary shadow-sm hover:border-primary/40 hover:shadow-md transition"
+          >
+            ← Back to Chat
+          </a>
+        </div>
+
         <div className="overflow-hidden rounded-3xl border border-primary/15 bg-white/80 shadow-xl backdrop-blur">
           <div className="relative isolate overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-r from-emerald-700 via-emerald-500 to-lime-400 opacity-80" />
