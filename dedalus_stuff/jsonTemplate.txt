@@ -1,0 +1,19 @@
+{
+    "format": { "name": "conversation_bundle", "version": "1.0" },
+    "encoding": { "charset": "utf-8", "line_endings": "lf" },
+    "conversation": {
+      "name": "Dedalus Break-In prototype",
+      "name_hash_sha256": "SHA256_OF_NAME"
+    },
+    "model": {
+      "kind": "claude-opus",
+      "name": "claude-opus-4-5"
+    },
+    "messages": {
+        "LLMs": [],
+        "users": [],
+        "filepaths": [],
+        "tools": [],
+        "notes": ""
+    }
+}
