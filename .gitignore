@@ -9,8 +9,7 @@ package-lock.json
 /.next
 /dedalus_stuff/conversations
 .env.example
-.env 2.local
+".env 2.local"
 repomix-output.xml
 repomix-output-*.xml
 demo.txt
-
