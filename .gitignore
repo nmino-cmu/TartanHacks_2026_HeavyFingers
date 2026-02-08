@@ -4,7 +4,7 @@ wallet*.json
 todo.md
 .env
 .env.local
-/.env.local
+/dedalus_stuff/.env.local
 package-lock.json
 /node_modules
 /.next
