@@ -224,19 +224,114 @@ def _compact_text(value: str, max_chars: int) -> str:
     return compact[: max_chars - 1].rstrip() + "…"
 
 
+def _clamp_int(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, int(value)))
+
+
+def _history_compression_pressure(history_window: int, summary_limit: int) -> float:
+    window_denom = max(DEFAULT_HISTORY_WINDOW_MESSAGES - 1, 1)
+    summary_floor = 400
+    summary_denom = max(DEFAULT_HISTORY_SUMMARY_MAX_CHARS - summary_floor, 1)
+    window_pressure = max(DEFAULT_HISTORY_WINDOW_MESSAGES - history_window, 0) / window_denom
+    summary_pressure = max(DEFAULT_HISTORY_SUMMARY_MAX_CHARS - summary_limit, 0) / summary_denom
+    return min(max((window_pressure * 0.6) + (summary_pressure * 0.4), 0.0), 1.0)
+
+
+def _is_signal_line(line: str) -> bool:
+    if not line:
+        return False
+    return bool(
+        re.search(
+            r"(```|`[^`]+`|^\s*[-*]\s+|^\s*\d+[.)]\s+|error|exception|traceback|failed|must|required|todo|fix|bug|[{}\[\]();=<>])",
+            line,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _compact_with_head_tail(value: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    if len(value) <= max_chars:
+        return value
+    if max_chars <= 7:
+        return value[:max_chars].rstrip()
+
+    head_budget = max(1, int(max_chars * 0.62))
+    tail_budget = max(1, max_chars - head_budget - 5)
+    compacted = f"{value[:head_budget].rstrip()}\n...\n{value[-tail_budget:].lstrip()}"
+    if len(compacted) <= max_chars:
+        return compacted
+    return _compact_text(compacted, max_chars)
+
+
+def _compact_message_text(value: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+
+    normalized_lines = [line.strip() for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    normalized_lines = [line for line in normalized_lines if line]
+    if not normalized_lines:
+        return ""
+
+    normalized = "\n".join(normalized_lines)
+    if len(normalized) <= max_chars:
+        return normalized
+
+    selected_lines: list[str] = []
+    seen: set[str] = set()
+    for index, line in enumerate(normalized_lines):
+        is_edge_line = index == 0 or index == len(normalized_lines) - 1
+        if not (is_edge_line or _is_signal_line(line)):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        selected_lines.append(line)
+
+    candidate = "\n".join(selected_lines).strip()
+    if candidate:
+        return _compact_with_head_tail(candidate, max_chars)
+    return _compact_with_head_tail(normalized, max_chars)
+
+
+def _select_messages_for_summary(messages: list[dict], max_entries: int) -> list[dict]:
+    if len(messages) <= max_entries:
+        return messages
+
+    safe_max_entries = max(1, max_entries)
+    head_count = min(2, max(1, safe_max_entries // 3))
+    tail_count = max(0, safe_max_entries - head_count)
+    if tail_count == 0:
+        return messages[-safe_max_entries:]
+    return messages[:head_count] + messages[-tail_count:]
+
+
 def _build_history_summary(messages: list[dict], max_chars: int) -> str:
     if not messages or max_chars <= 0:
         return ""
 
-    lines: list[str] = []
-    remaining = max_chars
+    summary_limit = max(140, int(max_chars))
+    max_summary_entries = _clamp_int(summary_limit // 120, 4, 36)
+    selected_messages = _select_messages_for_summary(messages, max_summary_entries)
+    omitted_count = max(0, len(messages) - len(selected_messages))
+    per_message_cap = _clamp_int(summary_limit // max(len(selected_messages) + 1, 5), 90, 260)
 
-    for entry in messages:
+    lines: list[str] = []
+    remaining = summary_limit
+
+    if omitted_count > 0:
+        omitted_line = f"- [Earlier history compressed: {omitted_count} turn(s) omitted.]"
+        if len(omitted_line) + 1 <= remaining:
+            lines.append(omitted_line)
+            remaining -= len(omitted_line) + 1
+
+    for entry in selected_messages:
         role = entry.get("role")
         content = entry.get("content")
         if role not in {"user", "assistant", "system"} or not isinstance(content, str):
             continue
-        normalized = _compact_text(content, 220)
+        normalized = _compact_message_text(content, per_message_cap)
         if not normalized:
             continue
 
@@ -253,6 +348,117 @@ def _build_history_summary(messages: list[dict], max_chars: int) -> str:
             break
 
     return "\n".join(lines).strip()
+
+
+def _compute_recent_history_budget(history_window: int, summary_limit: int, pressure: float) -> int:
+    window_ratio = history_window / max(DEFAULT_HISTORY_WINDOW_MESSAGES, 1)
+    budget = int(round(summary_limit * (1.75 + (1.35 * window_ratio))))
+    if pressure >= 0.65:
+        budget = int(round(budget * 0.84))
+    if pressure >= 0.85:
+        budget = int(round(budget * 0.82))
+    return _clamp_int(
+        budget,
+        max(180, history_window * 170),
+        max(2200, history_window * 2200),
+    )
+
+
+def _compress_recent_messages(
+    messages: list[dict],
+    *,
+    total_budget_chars: int,
+    compression_pressure: float,
+    preserve_last_message: bool = True,
+) -> list[dict]:
+    if not messages:
+        return []
+
+    max_chars_per_message = _clamp_int(int(round(2200 - (1300 * compression_pressure))), 480, 2200)
+    min_chars_per_message = _clamp_int(int(round(240 - (110 * compression_pressure))), 120, 240)
+
+    preserved_tail: dict | None = None
+    message_pool = messages
+    if preserve_last_message and messages:
+        tail = messages[-1]
+        tail_role = tail.get("role")
+        tail_content = tail.get("content")
+        if (
+            tail_role in {"user", "assistant", "system"}
+            and isinstance(tail_content, str)
+            and tail_content.strip()
+        ):
+            preserved_tail = {"role": tail_role, "content": tail_content.strip()}
+            message_pool = messages[:-1]
+
+    preserved_tail_len = len(preserved_tail["content"]) if preserved_tail else 0
+    pool_count = len(message_pool)
+
+    if pool_count == 0:
+        return [preserved_tail] if preserved_tail else []
+
+    minimum_pool_budget = pool_count * min_chars_per_message
+    maximum_pool_budget = pool_count * max_chars_per_message
+    effective_total_budget = _clamp_int(
+        total_budget_chars,
+        minimum_pool_budget + preserved_tail_len,
+        maximum_pool_budget + preserved_tail_len,
+    )
+    available_pool_budget = max(effective_total_budget - preserved_tail_len, minimum_pool_budget)
+
+    weights: list[float] = []
+    for index, entry in enumerate(message_pool):
+        recency = index / max(pool_count - 1, 1)
+        role = entry.get("role")
+        weight = 1.0 + (0.9 * recency)
+        if role == "user":
+            weight += 0.25
+        elif role == "system":
+            weight += 0.1
+        if index >= pool_count - 2:
+            weight += 0.2
+        weights.append(weight)
+
+    weight_sum = sum(weights) or float(pool_count)
+    char_budgets: list[int] = []
+    for weight in weights:
+        share = available_pool_budget * (weight / weight_sum)
+        char_budgets.append(_clamp_int(int(round(share)), min_chars_per_message, max_chars_per_message))
+
+    compressed_messages: list[dict] = []
+    for entry, message_budget in zip(message_pool, char_budgets):
+        role = entry.get("role")
+        content = entry.get("content")
+        if role not in {"user", "assistant", "system"} or not isinstance(content, str):
+            continue
+        compacted = _compact_message_text(content, message_budget)
+        if compacted:
+            compressed_messages.append({"role": role, "content": compacted})
+
+    current_total = sum(len(item["content"]) for item in compressed_messages) + preserved_tail_len
+    overflow = max(current_total - effective_total_budget, 0)
+    if overflow > 0:
+        for index in range(len(compressed_messages)):
+            if overflow <= 0:
+                break
+            current_content = compressed_messages[index]["content"]
+            current_length = len(current_content)
+            if index >= len(compressed_messages) - 2:
+                floor = min_chars_per_message
+            else:
+                floor = max(90, min_chars_per_message - 40)
+            reducible = max(current_length - floor, 0)
+            if reducible <= 0:
+                continue
+            target_length = current_length - min(reducible, overflow)
+            reduced = _compact_message_text(current_content, target_length)
+            compressed_messages[index]["content"] = reduced
+            overflow -= current_length - len(reduced)
+
+    if preserved_tail:
+        compressed_messages.append(preserved_tail)
+
+    return compressed_messages
 
 
 def normalize_messages_for_api(
@@ -274,7 +480,9 @@ def normalize_messages_for_api(
             normalized_messages.append({"role": role, "content": text})
 
     history_window = max(1, int(history_window_messages))
-    summary_limit = max(300, int(history_summary_max_chars))
+    summary_limit = max(240, int(history_summary_max_chars))
+    compression_pressure = _history_compression_pressure(history_window, summary_limit)
+    recent_budget = _compute_recent_history_budget(history_window, summary_limit, compression_pressure)
 
     if len(normalized_messages) > history_window:
         older_messages = normalized_messages[:-history_window]
@@ -290,10 +498,29 @@ def normalize_messages_for_api(
                     ),
                 }
             )
-        api_messages.extend(recent_messages)
+        api_messages.extend(
+            _compress_recent_messages(
+                recent_messages,
+                total_budget_chars=recent_budget,
+                compression_pressure=compression_pressure,
+                preserve_last_message=True,
+            )
+        )
         return api_messages
 
-    api_messages.extend(normalized_messages)
+    bounded_recent_budget = _clamp_int(
+        recent_budget,
+        max(180, len(normalized_messages) * 170),
+        max(2200, len(normalized_messages) * 2200),
+    )
+    api_messages.extend(
+        _compress_recent_messages(
+            normalized_messages,
+            total_budget_chars=bounded_recent_budget,
+            compression_pressure=compression_pressure,
+            preserve_last_message=True,
+        )
+    )
     return api_messages
 
 

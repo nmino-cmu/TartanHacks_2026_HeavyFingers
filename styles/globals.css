@@ -10,88 +10,88 @@
 
 @layer base {
   :root {
-    /* Eco palette: seafoam, mint, fern, pine */
-    --background: 150 25% 96%;
-    --foreground: 155 45% 12%;
-    --card: 150 20% 98%;
-    --card-foreground: 155 45% 12%;
-    --popover: 150 20% 98%;
-    --popover-foreground: 155 45% 12%;
-    --primary: 145 48% 32%;
-    --primary-foreground: 150 30% 97%;
-    --secondary: 155 25% 90%;
-    --secondary-foreground: 155 45% 15%;
-    --muted: 150 18% 92%;
-    --muted-foreground: 155 15% 42%;
-    --accent: 162 38% 65%;
-    --accent-foreground: 155 50% 10%;
+    /* Slightly darker, lower-saturation corporate eco palette */
+    --background: 160 14% 92%;
+    --foreground: 166 24% 13%;
+    --card: 160 11% 94%;
+    --card-foreground: 166 24% 13%;
+    --popover: 160 11% 94%;
+    --popover-foreground: 166 24% 13%;
+    --primary: 162 34% 30%;
+    --primary-foreground: 160 22% 96%;
+    --secondary: 162 10% 84%;
+    --secondary-foreground: 166 18% 20%;
+    --muted: 160 10% 87%;
+    --muted-foreground: 166 12% 36%;
+    --accent: 167 26% 56%;
+    --accent-foreground: 166 26% 12%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 150 20% 86%;
-    --input: 150 20% 86%;
-    --ring: 145 48% 32%;
-    --chart-1: 145 48% 32%;
-    --chart-2: 162 38% 65%;
-    --chart-3: 155 60% 20%;
-    --chart-4: 150 30% 75%;
-    --chart-5: 140 35% 50%;
+    --border: 162 10% 75%;
+    --input: 162 10% 75%;
+    --ring: 162 34% 30%;
+    --chart-1: 162 34% 30%;
+    --chart-2: 167 26% 56%;
+    --chart-3: 166 30% 24%;
+    --chart-4: 162 16% 72%;
+    --chart-5: 160 20% 44%;
     --radius: 0.75rem;
-    --sidebar-background: 155 30% 95%;
-    --sidebar-foreground: 155 45% 15%;
-    --sidebar-primary: 145 48% 32%;
+    --sidebar-background: 162 12% 91%;
+    --sidebar-foreground: 166 22% 18%;
+    --sidebar-primary: 162 34% 30%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 150 25% 90%;
-    --sidebar-accent-foreground: 155 45% 15%;
-    --sidebar-border: 150 20% 86%;
-    --sidebar-ring: 145 48% 32%;
+    --sidebar-accent: 162 10% 84%;
+    --sidebar-accent-foreground: 166 22% 18%;
+    --sidebar-border: 162 10% 75%;
+    --sidebar-ring: 162 34% 30%;
 
     /* Custom eco tokens */
-    --pine: 155 60% 20%;
-    --pine-light: 155 40% 30%;
-    --seafoam: 162 38% 65%;
-    --mint: 150 35% 88%;
-    --fern: 145 48% 32%;
+    --pine: 166 33% 24%;
+    --pine-light: 166 23% 34%;
+    --seafoam: 168 24% 56%;
+    --mint: 162 16% 84%;
+    --fern: 162 34% 30%;
   }
 
   .dark {
-    --background: 160 16% 8%;
-    --foreground: 150 30% 94%;
-    --card: 160 18% 10%;
-    --card-foreground: 150 30% 94%;
-    --popover: 160 18% 10%;
-    --popover-foreground: 150 30% 94%;
-    --primary: 150 55% 52%;
-    --primary-foreground: 160 14% 8%;
-    --secondary: 160 12% 18%;
-    --secondary-foreground: 150 25% 90%;
-    --muted: 160 10% 20%;
-    --muted-foreground: 150 15% 70%;
-    --accent: 158 45% 45%;
-    --accent-foreground: 160 16% 8%;
+    --background: 165 14% 7%;
+    --foreground: 160 18% 91%;
+    --card: 165 13% 9%;
+    --card-foreground: 160 18% 91%;
+    --popover: 165 13% 9%;
+    --popover-foreground: 160 18% 91%;
+    --primary: 163 40% 48%;
+    --primary-foreground: 165 12% 7%;
+    --secondary: 165 9% 16%;
+    --secondary-foreground: 160 16% 88%;
+    --muted: 165 8% 18%;
+    --muted-foreground: 160 10% 68%;
+    --accent: 166 34% 40%;
+    --accent-foreground: 165 14% 7%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 160 10% 24%;
-    --input: 160 10% 24%;
-    --ring: 150 55% 52%;
-    --chart-1: 150 55% 52%;
-    --chart-2: 158 45% 45%;
-    --chart-3: 155 30% 82%;
-    --chart-4: 150 22% 65%;
-    --chart-5: 140 35% 60%;
-    --sidebar-background: 160 12% 12%;
-    --sidebar-foreground: 150 30% 92%;
-    --sidebar-primary: 150 55% 52%;
-    --sidebar-primary-foreground: 160 14% 8%;
-    --sidebar-accent: 160 12% 18%;
-    --sidebar-accent-foreground: 150 30% 92%;
-    --sidebar-border: 160 10% 24%;
-    --sidebar-ring: 150 55% 52%;
+    --border: 165 8% 22%;
+    --input: 165 8% 22%;
+    --ring: 163 40% 48%;
+    --chart-1: 163 40% 48%;
+    --chart-2: 166 34% 40%;
+    --chart-3: 160 14% 80%;
+    --chart-4: 160 12% 62%;
+    --chart-5: 160 18% 52%;
+    --sidebar-background: 165 10% 10%;
+    --sidebar-foreground: 160 16% 90%;
+    --sidebar-primary: 163 40% 48%;
+    --sidebar-primary-foreground: 165 12% 7%;
+    --sidebar-accent: 165 9% 16%;
+    --sidebar-accent-foreground: 160 16% 90%;
+    --sidebar-border: 165 8% 22%;
+    --sidebar-ring: 163 40% 48%;
 
-    --pine: 150 25% 82%;
-    --pine-light: 150 35% 70%;
-    --seafoam: 158 45% 60%;
-    --mint: 150 25% 20%;
-    --fern: 150 45% 48%;
+    --pine: 160 14% 78%;
+    --pine-light: 160 16% 66%;
+    --seafoam: 166 30% 54%;
+    --mint: 165 10% 19%;
+    --fern: 163 40% 48%;
   }
 }
 
@@ -106,32 +106,32 @@
 
 /* Mosaic tile background pattern */
 .mosaic-bg {
-  background-color: hsl(150 25% 96%);
+  background-color: hsl(160 14% 92%);
   background-image:
-    linear-gradient(30deg, hsl(155 60% 20% / 0.04) 12%, transparent 12.5%, transparent 87%, hsl(155 60% 20% / 0.04) 87.5%, hsl(155 60% 20% / 0.04)),
-    linear-gradient(150deg, hsl(155 60% 20% / 0.04) 12%, transparent 12.5%, transparent 87%, hsl(155 60% 20% / 0.04) 87.5%, hsl(155 60% 20% / 0.04)),
-    linear-gradient(30deg, hsl(155 60% 20% / 0.04) 12%, transparent 12.5%, transparent 87%, hsl(155 60% 20% / 0.04) 87.5%, hsl(155 60% 20% / 0.04)),
-    linear-gradient(150deg, hsl(155 60% 20% / 0.04) 12%, transparent 12.5%, transparent 87%, hsl(155 60% 20% / 0.04) 87.5%, hsl(155 60% 20% / 0.04)),
-    linear-gradient(60deg, hsl(162 38% 65% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(162 38% 65% / 0.06) 75%, hsl(162 38% 65% / 0.06)),
-    linear-gradient(60deg, hsl(162 38% 65% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(162 38% 65% / 0.06) 75%, hsl(162 38% 65% / 0.06));
+    linear-gradient(30deg, hsl(166 33% 24% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(166 33% 24% / 0.05) 87.5%, hsl(166 33% 24% / 0.05)),
+    linear-gradient(150deg, hsl(166 33% 24% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(166 33% 24% / 0.05) 87.5%, hsl(166 33% 24% / 0.05)),
+    linear-gradient(30deg, hsl(166 33% 24% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(166 33% 24% / 0.05) 87.5%, hsl(166 33% 24% / 0.05)),
+    linear-gradient(150deg, hsl(166 33% 24% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(166 33% 24% / 0.05) 87.5%, hsl(166 33% 24% / 0.05)),
+    linear-gradient(60deg, hsl(168 24% 56% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(168 24% 56% / 0.07) 75%, hsl(168 24% 56% / 0.07)),
+    linear-gradient(60deg, hsl(168 24% 56% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(168 24% 56% / 0.07) 75%, hsl(168 24% 56% / 0.07));
   background-size: 80px 140px;
   background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
 }
 
 .dark .mosaic-bg {
-  background-color: hsl(160 16% 8%);
+  background-color: hsl(165 14% 7%);
   background-image:
-    linear-gradient(30deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
-    linear-gradient(150deg, hsl(150 55% 52% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(150 55% 52% / 0.05) 87.5%, hsl(150 55% 52% / 0.05)),
-    linear-gradient(30deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
-    linear-gradient(150deg, hsl(158 45% 45% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(158 45% 45% / 0.06) 87.5%, hsl(158 45% 45% / 0.06)),
-    linear-gradient(60deg, hsl(158 45% 45% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(158 45% 45% / 0.07) 75%, hsl(158 45% 45% / 0.07)),
-    linear-gradient(60deg, hsl(150 55% 52% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(150 55% 52% / 0.06) 75%, hsl(150 55% 52% / 0.06));
+    linear-gradient(30deg, hsl(163 40% 48% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(163 40% 48% / 0.05) 87.5%, hsl(163 40% 48% / 0.05)),
+    linear-gradient(150deg, hsl(163 40% 48% / 0.05) 12%, transparent 12.5%, transparent 87%, hsl(163 40% 48% / 0.05) 87.5%, hsl(163 40% 48% / 0.05)),
+    linear-gradient(30deg, hsl(166 34% 40% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(166 34% 40% / 0.06) 87.5%, hsl(166 34% 40% / 0.06)),
+    linear-gradient(150deg, hsl(166 34% 40% / 0.06) 12%, transparent 12.5%, transparent 87%, hsl(166 34% 40% / 0.06) 87.5%, hsl(166 34% 40% / 0.06)),
+    linear-gradient(60deg, hsl(166 34% 40% / 0.07) 25%, transparent 25.5%, transparent 75%, hsl(166 34% 40% / 0.07) 75%, hsl(166 34% 40% / 0.07)),
+    linear-gradient(60deg, hsl(163 40% 48% / 0.06) 25%, transparent 25.5%, transparent 75%, hsl(163 40% 48% / 0.06) 75%, hsl(163 40% 48% / 0.06));
 }
 
 /* Pine gradient for hero/accent areas */
 .pine-gradient {
-  background: linear-gradient(135deg, hsl(155 60% 20%), hsl(155 40% 30%), hsl(145 48% 32%));
+  background: linear-gradient(135deg, hsl(166 33% 24%), hsl(166 23% 34%), hsl(162 34% 30%));
 }
 
 /* Scrollbar styling */
@@ -139,28 +139,28 @@
   width: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: hsl(150 18% 92%);
+  background: hsl(160 10% 86%);
   border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: hsl(150 20% 76%);
+  background: hsl(162 10% 68%);
   border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: hsl(145 48% 32%);
+  background: hsl(162 34% 30%);
 }
 
 /* dark styling */
 .dark .custom-scrollbar::-webkit-scrollbar-track {
-  background: hsl(160, 3%, 21%);
+  background: hsl(165 6% 19%);
   border-radius: 3px;
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: hsl(124, 12%, 27%);
+  background: hsl(163 10% 27%);
   border-radius: 3px;
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: hsl(145 48% 32%);
+  background: hsl(163 40% 48%);
 }
 
 /* Typing animation */
@@ -171,6 +171,6 @@
 .typing-cursor::after {
   content: '|';
   animation: blink 1s infinite;
-  color: hsl(145 48% 32%);
+  color: hsl(162 34% 30%);
   margin-left: 1px;
 }

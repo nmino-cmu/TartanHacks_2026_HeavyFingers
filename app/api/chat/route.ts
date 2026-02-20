@@ -51,6 +51,12 @@ interface CarbonRoutingSettings {
   historyCompression: number
 }
 
+interface RoutingToolSignals {
+  webSearchEnabled: boolean
+  deepSearchEnabled: boolean
+  attachmentCount: number
+}
+
 interface RoutingDecision {
   tier: RoutingTier
   model: string
@@ -236,7 +242,12 @@ function pickTierModels(selectedModel: string): { light: string; tooling: string
   }
 }
 
-function scorePromptComplexity(prompt: string): number {
+function countMatches(input: string, regex: RegExp): number {
+  const matches = input.match(regex)
+  return matches ? matches.length : 0
+}
+
+function scorePromptLength(prompt: string): number {
   const normalized = prompt.trim().toLowerCase()
   if (!normalized) {
     return 0
@@ -244,25 +255,101 @@ function scorePromptComplexity(prompt: string): number {
 
   const charCount = normalized.length
   const wordCount = normalized.split(/\s+/).filter(Boolean).length
-  const newlineCount = (normalized.match(/\n/g) || []).length
-  const questionCount = (normalized.match(/\?/g) || []).length
+  const newlineCount = countMatches(normalized, /\n/g)
+  const questionCount = countMatches(normalized, /\?/g)
 
   let score = 0
-  if (charCount > 220) score += 1
-  if (charCount > 520) score += 1
-  if (charCount > 1000) score += 1
-  if (wordCount > 55) score += 1
-  if (wordCount > 120) score += 1
+  if (charCount > 180) score += 1
+  if (charCount > 420) score += 1
+  if (charCount > 760) score += 1
+  if (charCount > 1300) score += 1
+  if (wordCount > 40) score += 1
+  if (wordCount > 90) score += 1
+  if (wordCount > 170) score += 1
+  if (newlineCount >= 3) score += 1
   if (newlineCount >= 4) score += 1
+  if (newlineCount >= 9) score += 1
   if (questionCount >= 2) score += 1
-  if (/(analy[sz]e|compare|trade[ -]?off|step[- ]by[- ]step|plan|strategy|ambiguous|deep dive)/.test(normalized)) {
+
+  return score
+}
+
+function scoreInstructionComplexity(prompt: string): number {
+  const normalized = prompt.trim().toLowerCase()
+  if (!normalized) {
+    return 0
+  }
+
+  // Keep this local and deterministic: complexity is inferred from prompt structure without model calls.
+  const actionVerbCount = countMatches(
+    normalized,
+    /\b(analy[sz]e|compare|plan|explain|implement|build|create|design|debug|refactor|optimi[sz]e|benchmark|evaluate|troubleshoot|investigate|synthesize|summari[sz]e|route|classify|translate)\b/g,
+  )
+  const constraintCount = countMatches(
+    normalized,
+    /\b(must|required|should|exactly|strictly|only|without|do not|don't|never|include|exclude|format|json|table|bullet|step[- ]by[- ]step|line[- ]by[- ]line)\b/g,
+  )
+  const reasoningHintCount = countMatches(
+    normalized,
+    /\b(ambiguous|trade[ -]?off|root cause|architecture|algorithm|dependency|edge case|failure mode|fallback|latency|performance|security|correctness)\b/g,
+  )
+  const stepListCount = countMatches(prompt, /^\s*(?:[-*]|\d+[.)])\s+/gm)
+  const codeSignalCount = countMatches(
+    prompt,
+    /(```|`[^`]+`|[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+|--?[a-zA-Z][a-zA-Z-]*|\b[A-Za-z_]+\([^)]*\)|[{[\]}])/g,
+  )
+  const conjunctionCount = countMatches(normalized, /\b(and|or|then|after|before|while|unless)\b/g)
+
+  let score = 0
+  if (actionVerbCount >= 2) score += 1
+  if (actionVerbCount >= 5) score += 1
+  if (constraintCount >= 2) score += 1
+  if (constraintCount >= 5) score += 1
+  if (reasoningHintCount >= 1) score += 1
+  if (reasoningHintCount >= 3) score += 1
+  if (stepListCount >= 2) score += 1
+  if (stepListCount >= 5) score += 1
+  if (codeSignalCount >= 2) score += 1
+  if (codeSignalCount >= 6) score += 1
+  if (conjunctionCount >= 8) score += 1
+
+  return score
+}
+
+function scoreToolComplexity(tools: RoutingToolSignals): number {
+  let score = 0
+
+  if (tools.webSearchEnabled) {
     score += 2
   }
-  if (/(debug|root cause|architecture|design|optimi[sz]e|refactor|benchmark|algorithm)/.test(normalized)) {
-    score += 2
+  if (tools.deepSearchEnabled) {
+    score += 3
+  }
+  if (tools.webSearchEnabled && tools.deepSearchEnabled) {
+    score += 1
+  }
+  if (tools.attachmentCount > 0) {
+    score += 1
+  }
+  if (tools.attachmentCount > 1) {
+    score += 1
+  }
+  if (tools.attachmentCount > 3) {
+    score += 1
   }
 
   return score
+}
+
+function scorePromptComplexity(prompt: string, tools: RoutingToolSignals): number {
+  if (!prompt.trim()) {
+    return 0
+  }
+
+  const lengthScore = scorePromptLength(prompt)
+  const instructionScore = scoreInstructionComplexity(prompt)
+  const toolScore = scoreToolComplexity(tools)
+  return lengthScore + instructionScore + toolScore
 }
 
 function computeHistoryCompression(
@@ -308,23 +395,25 @@ function computeHistoryCompression(
 function buildRoutingDecision(params: {
   latestUserMessage: string
   selectedModel: string
-  toolsEnabled: boolean
+  tools: RoutingToolSignals
   settings: CarbonRoutingSettings
 }): RoutingDecision {
-  const { latestUserMessage, selectedModel, toolsEnabled, settings } = params
+  const { latestUserMessage, selectedModel, tools, settings } = params
   const tierModels = pickTierModels(selectedModel)
-  const complexity = scorePromptComplexity(latestUserMessage)
-  const complexityThreshold = clampInt(
-    7 - Math.floor(clampInt(settings.routingSensitivity, 0, 100) / 25),
-    3,
-    7,
-  )
+  const complexity = scorePromptComplexity(latestUserMessage, tools)
+  const sensitivity = clampInt(settings.routingSensitivity, 0, 100)
+  const toolingThreshold = clampInt(9 - Math.floor(sensitivity / 20), 4, 9)
+  const heavyThreshold = clampInt(17 - Math.floor(sensitivity / 10), 7, 17)
+  const hasAnyToolingSignals =
+    tools.webSearchEnabled || tools.deepSearchEnabled || tools.attachmentCount > 0
+  const heavyBiasForDeepSearch = tools.deepSearchEnabled ? 2 : 0
 
-  const tier: RoutingTier = toolsEnabled
-    ? "tooling"
-    : complexity >= complexityThreshold
+  const tier: RoutingTier =
+    complexity >= heavyThreshold - heavyBiasForDeepSearch
       ? "heavy"
-      : "light"
+      : hasAnyToolingSignals || complexity >= toolingThreshold
+        ? "tooling"
+        : "light"
 
   const model =
     tier === "tooling" ? tierModels.tooling : tier === "heavy" ? tierModels.heavy : tierModels.light
@@ -1472,12 +1561,15 @@ export async function POST(req: Request) {
       return Response.json({ error: "No valid OCR attachments were found in the request." }, { status: 400 })
     }
 
-    const toolsEnabledForRouting =
-      webSearchEnabled || deepSearchEnabled || uploadedOcrAttachments.length > 0
+    const routingTools: RoutingToolSignals = {
+      webSearchEnabled,
+      deepSearchEnabled,
+      attachmentCount: uploadedOcrAttachments.length,
+    }
     const routingDecision = buildRoutingDecision({
       latestUserMessage,
       selectedModel,
-      toolsEnabled: toolsEnabledForRouting,
+      tools: routingTools,
       settings: carbonSettings,
     })
 

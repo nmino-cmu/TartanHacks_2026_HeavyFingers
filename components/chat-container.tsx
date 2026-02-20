@@ -426,6 +426,26 @@ function WalletIcon({ className }: { className?: string }) {
   )
 }
 
+function DashboardIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M3 3h18v18H3z" />
+      <path d="M7 14v3" />
+      <path d="M12 10v7" />
+      <path d="M17 7v10" />
+    </svg>
+  )
+}
+
 function formatConversationDate(isoValue: string): string {
   const parsed = new Date(isoValue)
   if (Number.isNaN(parsed.getTime())) {
@@ -1019,6 +1039,18 @@ export function ChatContainer() {
         </div>
 
         <div className="space-y-2 border-t border-border/70 p-2">
+          <Link
+            href="/dashboard"
+            className="group flex items-center gap-2 rounded-lg border border-cyan-600/40 bg-gradient-to-r from-cyan-500/10 to-emerald-500/10 px-3 py-2 text-sm text-foreground transition-colors hover:border-cyan-500/70 hover:from-cyan-500/15 hover:to-emerald-500/15 dark:hover:border-cyan-300/80"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 transition-colors group-hover:border-cyan-500 group-hover:text-cyan-800 dark:border-cyan-400/60 dark:bg-cyan-400/15 dark:text-cyan-200 dark:group-hover:border-cyan-300 dark:group-hover:text-cyan-100">
+              <DashboardIcon className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-medium">Carbon dashboard</p>
+              <p className="truncate text-xs text-muted-foreground">Monitor users and conversations</p>
+            </div>
+          </Link>
           <Link
             href="/wallet"
             className="group flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-sm text-foreground transition-colors hover:border-emerald-600 hover:bg-emerald-500/10 dark:hover:border-emerald-400 dark:hover:bg-emerald-400/15"
